@@ -19,7 +19,7 @@ struct ImageBuffer {
   int height;
   char * pixels;
   int num_channels;
-}
+};
 
 int main() {
  //Initialize SDL
