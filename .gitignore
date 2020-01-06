@@ -1,2 +1,4 @@
 *.exe
 *.obj
+*.dSYM
+vr-voxel-space

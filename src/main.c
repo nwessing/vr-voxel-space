@@ -1,4 +1,4 @@
-#include "sdl2/SDL.h"
+#include "SDL2/SDL.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #include "stdbool.h"
@@ -60,8 +60,18 @@ struct Color get_image_color(struct ImageBuffer *image, int x, int y) {
   return result;
 }
 
+void put_pixel(struct FrameBuffer *frame, struct Color color, int x, int y) {
+  if (x < 0 || x >= frame->width || y < 0 || y >= frame->height) {
+    return;
+  }
+
+  assert(x >= 0 && x < frame->width);
+  assert(y >= 0 && y < frame->height);
+
+  frame->pixels[x + (y * frame->pitch / 4)] = (color.r << 24) | (color.g << 16) | (color.b << 8) | 0x000000FF;
+}
+
 void render_vertical_line(struct FrameBuffer *frame, int x, int height, struct Color color) {
-  // printf("x = %i", x);
   if (x < 0 || x >= frame->width || height < 0 || height >= frame->height) {
     return;
   }
@@ -69,9 +79,11 @@ void render_vertical_line(struct FrameBuffer *frame, int x, int height, struct C
   assert(x >= 0 && x < frame->width);
   assert(height >= 0 && height < frame->height);
 
-  for (int y = frame->height - height; y < frame->height; ++y) {
-    frame->pixels[x + (y * frame->pitch / 4)] = (color.r << 24) | (color.g << 16) | (color.b << 8) | 0x000000FF;
-  }
+  /* for (int y = frame->height - height; y < frame->height; ++y) { */
+  /*   put_pixel(frame, color, x, y); */
+  /* } */
+
+  put_pixel(frame, color, x, height);
 }
 
 void render(struct FrameBuffer *frame, struct ImageBuffer *color_map, struct ImageBuffer *height_map) {
@@ -85,13 +97,14 @@ void render(struct FrameBuffer *frame, struct ImageBuffer *color_map, struct Ima
     int point_left_x = position_x - z;
     int point_left_y = position_y - z;
     int point_right_x = position_x + z;
-    int point_right_y = position_y - z;
+    /* int point_right_y = position_y - z; */
 
     int dx = (point_right_x - point_left_x) / SCREEN_WIDTH;
     for (int x = 0; x < SCREEN_WIDTH; x++) {
       int terrain_height = get_image_grey(height_map, point_left_x, point_left_y);
       int height_on_screen = (position_height - terrain_height) / z * scale_height + horizon;
-      render_vertical_line(frame, x, height_on_screen, get_image_color(color_map, point_left_x, point_left_y));
+      struct Color color = get_image_color(color_map, point_left_x, point_left_y);
+      render_vertical_line(frame, x, height_on_screen, color);
       point_left_x += dx;
     }
   }
@@ -159,11 +172,8 @@ int main() {
   {
     for (int column = 0; column < SCREEN_WIDTH; ++column)
     {
-      int offset = (column + (row * color_map.width)) * color_map.num_channels;
-      unsigned char red = color_map.pixels[offset];
-      unsigned char green = color_map.pixels[offset + 1];
-      unsigned char blue = color_map.pixels[offset + 2];
-      f_buffer.pixels[column + (row * f_buffer.pitch / 4)] =  (red << 24) | (green << 16) | (blue << 8) | 0x000000FF;
+      struct Color color = get_image_color(&color_map, column, row);
+      put_pixel(&f_buffer, color, column, row);
     }
   }
 
@@ -180,7 +190,8 @@ int main() {
     SDL_Event e;
     while (SDL_PollEvent(&e) != 0)
     {
-      if (e.type == SDL_QUIT)
+      if (e.type == SDL_QUIT ||
+          e.key.keysym.sym == SDLK_q)
       {
         quit = true;
       }
