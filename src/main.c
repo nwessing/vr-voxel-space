@@ -79,11 +79,11 @@ void render_vertical_line(struct FrameBuffer *frame, int x, int height, struct C
   assert(x >= 0 && x < frame->width);
   assert(height >= 0 && height < frame->height);
 
-  /* for (int y = frame->height - height; y < frame->height; ++y) { */
-  /*   put_pixel(frame, color, x, y); */
-  /* } */
+  for (int y = frame->height - height; y < frame->height; ++y) {
+    put_pixel(frame, color, x, y);
+  }
 
-  put_pixel(frame, color, x, height);
+  // put_pixel(frame, color, x, frame->height - height);
 }
 
 void render(struct FrameBuffer *frame, struct ImageBuffer *color_map, struct ImageBuffer *height_map) {
@@ -99,12 +99,13 @@ void render(struct FrameBuffer *frame, struct ImageBuffer *color_map, struct Ima
     int point_right_x = position_x + z;
     /* int point_right_y = position_y - z; */
 
-    int dx = (point_right_x - point_left_x) / SCREEN_WIDTH;
-    for (int x = 0; x < SCREEN_WIDTH; x++) {
+    int dx = (point_right_x - point_left_x) / frame->width;
+   for (int x = 0; x < frame->width; x++) {
       int terrain_height = get_image_grey(height_map, point_left_x, point_left_y);
-      int height_on_screen = (position_height - terrain_height) / z * scale_height + horizon;
+      int height_on_screen = ((float) (position_height - terrain_height) / z) * scale_height + horizon;
       struct Color color = get_image_color(color_map, point_left_x, point_left_y);
-      render_vertical_line(frame, x, height_on_screen, color);
+      // printf("(%i, %f, %i) r: %i, g: %i, b: %i\n", x, height_on_screen, z, color.r, color.g, color.b);
+      render_vertical_line(frame, x, (int)height_on_screen, color);
       point_left_x += dx;
     }
   }
