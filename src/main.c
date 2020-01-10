@@ -4,6 +4,7 @@
 #include "stdbool.h"
 #include "stdio.h"
 #include "stdint.h"
+#include "math.h"
 
 #define SCREEN_WIDTH 800
 #define SCREEN_HEIGHT 640
@@ -32,6 +33,16 @@ struct Color {
   unsigned char g;
   unsigned char b;
   unsigned char a;
+};
+
+struct Camera {
+  int distance;
+  float rotation;
+  int horizon;
+  int scale_height;
+  int position_x;
+  int position_y;
+  int position_height;
 };
 
 unsigned char get_image_grey(struct ImageBuffer *image, int x, int y) {
@@ -88,38 +99,35 @@ void render_vertical_line(struct FrameBuffer *frame, int x, int height, struct C
   for (int y = height; y < frame->height; ++y) {
     put_pixel(frame, color, x, y);
   }
-
-  /* put_pixel(frame, color, x, frame->height - height); */
 }
 
-void render(struct FrameBuffer *frame, struct ImageBuffer *color_map, struct ImageBuffer *height_map) {
-  int distance = 300;
-  int position_height = 50;
-  int horizon = 120;
-  int scale_height = 120;
-  int position_x = 512;
-  int position_y = 512;
+void render(struct FrameBuffer *frame, struct ImageBuffer *color_map, struct ImageBuffer *height_map, struct Camera *camera) {
+  float cosphi = cos(camera->rotation);
+  float sinphi = sin(camera->rotation);
 
-  for (int z = distance; z > 1; --z) {
-    float point_left_x = position_x - z;
-    float point_left_y = position_y - z;
-    float point_right_x = position_x + z;
-    /* float point_right_y = position_y - z; */
+  for (int z = camera->distance; z > 1; --z) {
+    float point_left_x = (-cosphi * z - sinphi * z) + camera->position_x;
+    float point_left_y = (-cosphi * z + sinphi * z) + camera->position_y;
+    float point_right_x = (cosphi * z - sinphi * z) + camera->position_x;
+    float point_right_y = (-cosphi * z - sinphi * z) + camera->position_y;
 
     float dx = (point_right_x - point_left_x) / (float) frame->width;
+    float dy = (point_right_y - point_left_y) / (float) frame->width;
+
     for (int x = 0; x < frame->width; x++) {
       int terrain_height = get_image_grey(height_map, point_left_x, point_left_y);
-      int height_on_screen = ((float) (position_height - terrain_height) / z) * scale_height + horizon;
+      int height_on_screen = ((float) (camera->position_height - terrain_height) / z) * camera->scale_height + camera->horizon;
       struct Color color = get_image_color(color_map, point_left_x, point_left_y);
 
       render_vertical_line(frame, x, (int)height_on_screen, color);
       point_left_x += dx;
+      point_left_y += dy;
     }
   }
 }
 
 int main() {
- //Initialize SDL
+  //Initialize SDL
   if(SDL_Init(SDL_INIT_VIDEO) < 0 )
   {
       printf("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
@@ -150,29 +158,20 @@ int main() {
     printf("Could not load height map");
     return 1;
   }
-  printf("height map has %i channels", height_map.num_channels);
 
   struct FrameBuffer f_buffer;
   f_buffer.width = SCREEN_WIDTH;
   f_buffer.height = SCREEN_HEIGHT;
-  SDL_LockTexture(buffer, NULL, (void**) &f_buffer.pixels, &f_buffer.pitch);
 
-  for (int row = 0; row < SCREEN_HEIGHT; ++row)
-  {
-    for (int column = 0; column < SCREEN_WIDTH; ++column)
-    {
-      /* struct Color color = get_image_color(&color_map, column, row); */
-      struct Color color = { .r = 0, .g = 0, .b = 255};
-      put_pixel(&f_buffer, color, column, row);
-    }
-  }
-
-  render(&f_buffer, &color_map, &height_map);
-
-  SDL_UnlockTexture(buffer);
-
-  SDL_RenderCopy(renderer, buffer, NULL, NULL);
-  SDL_RenderPresent(renderer);
+  struct Camera camera = {
+    .distance = 300,
+    .rotation = M_PI,
+    .horizon = 120,
+    .scale_height = 120,
+    .position_x = 512,
+    .position_y = 512,
+    .position_height = 50
+  };
 
   bool quit = false;
   while (!quit)
@@ -185,8 +184,40 @@ int main() {
       {
         quit = true;
       }
+
+      if (e.type == SDL_KEYDOWN &&
+          /* e.key.repeat == 0 && */
+          e.key.keysym.sym == SDLK_a)
+      {
+        camera.rotation += M_PI / 6;
+      }
+
+      if (e.type == SDL_KEYDOWN &&
+          /* e.key.repeat == 0 && */
+          e.key.keysym.sym == SDLK_d)
+      {
+        camera.rotation -= M_PI / 6;
+      }
+
+      if (camera.rotation >= 2 * M_PI) {
+        camera.rotation -= 2 * M_PI;
+      }
+
+      if (camera.rotation < 0) {
+        camera.rotation += 2 * M_PI;
+      }
     }
-    SDL_Delay(10);
+
+    SDL_LockTexture(buffer, NULL, (void**) &f_buffer.pixels, &f_buffer.pitch);
+
+    memset(f_buffer.pixels, 0, f_buffer.height * f_buffer.pitch);
+
+    render(&f_buffer, &color_map, &height_map, &camera);
+    SDL_UnlockTexture(buffer);
+
+    SDL_RenderCopy(renderer, buffer, NULL, NULL);
+    SDL_RenderPresent(renderer);
+    SDL_Delay(16);
   }
 
   //Destroy window
