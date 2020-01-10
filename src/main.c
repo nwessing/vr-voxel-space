@@ -3,14 +3,20 @@
 #include "stb_image.h"
 #include "stdbool.h"
 #include "stdio.h"
+#include "stdint.h"
 
 #define SCREEN_WIDTH 800
 #define SCREEN_HEIGHT 640
 
+typedef uint8_t u8;
+typedef uint32_t u32;
+typedef int8_t i8;
+typedef int32_t i32;
+
 struct FrameBuffer {
   int width;
   int height;
-  unsigned int* pixels;
+  unsigned int *pixels;
   int pitch;
 };
 
@@ -79,11 +85,11 @@ void render_vertical_line(struct FrameBuffer *frame, int x, int height, struct C
   assert(x >= 0 && x < frame->width);
   assert(height >= 0 && height < frame->height);
 
-  for (int y = frame->height - height; y < frame->height; ++y) {
+  for (int y = height; y < frame->height; ++y) {
     put_pixel(frame, color, x, y);
   }
 
-  // put_pixel(frame, color, x, frame->height - height);
+  /* put_pixel(frame, color, x, frame->height - height); */
 }
 
 void render(struct FrameBuffer *frame, struct ImageBuffer *color_map, struct ImageBuffer *height_map) {
@@ -93,41 +99,23 @@ void render(struct FrameBuffer *frame, struct ImageBuffer *color_map, struct Ima
   int scale_height = 120;
   int position_x = 512;
   int position_y = 512;
-  for (int z = distance; z > 1; --z) {
-    int point_left_x = position_x - z;
-    int point_left_y = position_y - z;
-    int point_right_x = position_x + z;
-    /* int point_right_y = position_y - z; */
 
-    int dx = (point_right_x - point_left_x) / frame->width;
-   for (int x = 0; x < frame->width; x++) {
+  for (int z = distance; z > 1; --z) {
+    float point_left_x = position_x - z;
+    float point_left_y = position_y - z;
+    float point_right_x = position_x + z;
+    /* float point_right_y = position_y - z; */
+
+    float dx = (point_right_x - point_left_x) / (float) frame->width;
+    for (int x = 0; x < frame->width; x++) {
       int terrain_height = get_image_grey(height_map, point_left_x, point_left_y);
       int height_on_screen = ((float) (position_height - terrain_height) / z) * scale_height + horizon;
       struct Color color = get_image_color(color_map, point_left_x, point_left_y);
-      // printf("(%i, %f, %i) r: %i, g: %i, b: %i\n", x, height_on_screen, z, color.r, color.g, color.b);
+
       render_vertical_line(frame, x, (int)height_on_screen, color);
       point_left_x += dx;
     }
   }
-// def Render(p, height, horizon, scale_height, distance, screen_width, screen_height):
-//     # Draw from back to the front (high z coordinate to low z coordinate)
-//     for z in range(distance, 1, -1):
-//         # Find line on map. This calculation corresponds to a field of view of 90°
-//         pleft  = Point(-z + p.x, -z + p.y)
-//         pright = Point( z + p.x, -z + p.y)
-//         # segment the line
-//         dx = (pright.x - pleft.x) / screen_width
-//         # Raster line and draw a vertical line for each segment
-//         for i in range(0, screen_width):
-//             height_on_screen = (height - heightmap[pleft.x, pleft.y]) / z * scale_height. + horizon
-//             DrawVerticalLine(i, height_on_screen, screen_height, colormap[pleft.x, pleft.y])
-//             pleft.x += dx
-
-// # Call the render function with the camera parameters:
-// # position, height, horizon line position,
-// # scaling factor for the height, the largest distance,
-// # screen width and the screen height parameter
-// Render( Point(0, 0), 50, 120, 120, 300, 800, 600 )
 }
 
 int main() {
@@ -173,7 +161,8 @@ int main() {
   {
     for (int column = 0; column < SCREEN_WIDTH; ++column)
     {
-      struct Color color = get_image_color(&color_map, column, row);
+      /* struct Color color = get_image_color(&color_map, column, row); */
+      struct Color color = { .r = 0, .g = 0, .b = 255};
       put_pixel(&f_buffer, color, column, row);
     }
   }
