@@ -19,6 +19,7 @@ struct FrameBuffer {
   int height;
   unsigned int *pixels;
   int pitch;
+  int *y_buffer;
 };
 
 struct ImageBuffer {
@@ -45,7 +46,25 @@ struct Camera {
   int position_height;
 };
 
+void wrap_coordinates(struct ImageBuffer *image, int *x, int *y) {
+  if (*x < 0) {
+    *x += image->width;
+  }
+
+  if (*y < 0) {
+    *y += image->height;
+  }
+
+  *x = *x % image->width;
+  *y = *y % image->height;
+}
+
 unsigned char get_image_grey(struct ImageBuffer *image, int x, int y) {
+  wrap_coordinates(image, &x, &y);
+
+  if (x < 0 || x >= image->width) {
+    printf("x = %i, image_w = %i\n", x, image->width);
+  }
   assert(x >=0 && x < image->width);
   assert(y >=0 && y < image->height);
   assert(image->num_channels == 1);
@@ -55,6 +74,8 @@ unsigned char get_image_grey(struct ImageBuffer *image, int x, int y) {
 }
 
 struct Color get_image_color(struct ImageBuffer *image, int x, int y) {
+  wrap_coordinates(image, &x, &y);
+
   assert(x >=0 && x < image->width);
   assert(y >=0 && y < image->height);
 
@@ -88,15 +109,16 @@ void put_pixel(struct FrameBuffer *frame, struct Color color, int x, int y) {
   frame->pixels[x + (y * frame->pitch / 4)] = (color.r << 24) | (color.g << 16) | (color.b << 8) | 0x000000FF;
 }
 
-void render_vertical_line(struct FrameBuffer *frame, int x, int height, struct Color color) {
-  if (x < 0 || x >= frame->width || height < 0 || height >= frame->height) {
+void render_vertical_line(struct FrameBuffer *frame, int x, int y_start, int y_end, struct Color color) {
+  if (x < 0 || x >= frame->width || y_start < 0 || y_end < 0 || y_start >= frame->height || y_end >= frame->height) {
     return;
   }
 
   assert(x >= 0 && x < frame->width);
-  assert(height >= 0 && height < frame->height);
+  assert(y_start >= 0 && y_start < frame->height);
+  assert(y_end >= 0 && y_end < frame->height);
 
-  for (int y = height; y < frame->height; ++y) {
+  for (int y = y_start; y < y_end; ++y) {
     put_pixel(frame, color, x, y);
   }
 }
@@ -105,7 +127,12 @@ void render(struct FrameBuffer *frame, struct ImageBuffer *color_map, struct Ima
   float cosphi = cos(camera->rotation);
   float sinphi = sin(camera->rotation);
 
-  for (int z = camera->distance; z > 1; --z) {
+  /* int *y_buffer = malloc(frame->width * sizeof(int)); */
+  for (int i = 0; i < frame->width; ++i) {
+    frame->y_buffer[i] = frame->height;
+  }
+
+  for (int z = 1; z < camera->distance; ++z) {
     float point_left_x = (-cosphi * z - sinphi * z) + camera->position_x;
     float point_left_y = (-cosphi * z + sinphi * z) + camera->position_y;
     float point_right_x = (cosphi * z - sinphi * z) + camera->position_x;
@@ -117,9 +144,13 @@ void render(struct FrameBuffer *frame, struct ImageBuffer *color_map, struct Ima
     for (int x = 0; x < frame->width; x++) {
       int terrain_height = get_image_grey(height_map, point_left_x, point_left_y);
       int height_on_screen = ((float) (camera->position_height - terrain_height) / z) * camera->scale_height + camera->horizon;
-      struct Color color = get_image_color(color_map, point_left_x, point_left_y);
 
-      render_vertical_line(frame, x, (int)height_on_screen, color);
+      int y_start = frame->y_buffer[x];
+      if (height_on_screen < y_start) {
+        struct Color color = get_image_color(color_map, point_left_x, point_left_y);
+        render_vertical_line(frame, x, height_on_screen, y_start, color);
+        frame->y_buffer[x] = height_on_screen;
+      }
       point_left_x += dx;
       point_left_y += dy;
     }
@@ -162,6 +193,7 @@ int main() {
   struct FrameBuffer f_buffer;
   f_buffer.width = SCREEN_WIDTH;
   f_buffer.height = SCREEN_HEIGHT;
+  f_buffer.y_buffer = malloc(f_buffer.width * sizeof(int));
 
   struct Camera camera = {
     .distance = 300,
@@ -196,14 +228,18 @@ int main() {
       }
 
       if (e.type == SDL_KEYDOWN &&
-          /* e.key.repeat == 0 && */
+          e.key.keysym.sym == SDLK_w)
+      {
+        camera.position_y += 600 * elapsed;
+      }
+
+      if (e.type == SDL_KEYDOWN &&
           e.key.keysym.sym == SDLK_a)
       {
         camera.rotation += M_PI * elapsed;
       }
 
       if (e.type == SDL_KEYDOWN &&
-          /* e.key.repeat == 0 && */
           e.key.keysym.sym == SDLK_d)
       {
         camera.rotation -= M_PI * elapsed;
@@ -230,6 +266,8 @@ int main() {
     num_frames++;
     /* SDL_Delay(16); */
   }
+
+  free(f_buffer.y_buffer);
 
   //Destroy window
   SDL_DestroyWindow(window);
