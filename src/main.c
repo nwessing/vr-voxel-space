@@ -174,8 +174,18 @@ int main() {
   };
 
   bool quit = false;
+  unsigned int time_last = SDL_GetTicks();
+  unsigned int num_frames = 0;
+  unsigned int time_begin = SDL_GetTicks();
   while (!quit)
   {
+    unsigned int time = SDL_GetTicks();
+    float elapsed = (time - time_last) / 1000.0;
+    if ((time % 1000) < (time_last % 1000)) {
+      printf("FPS: %f\n", num_frames / ((SDL_GetTicks() - time_begin) / (float) 1000));
+    }
+    time_last = time;
+
     SDL_Event e;
     while (SDL_PollEvent(&e) != 0)
     {
@@ -189,14 +199,14 @@ int main() {
           /* e.key.repeat == 0 && */
           e.key.keysym.sym == SDLK_a)
       {
-        camera.rotation += M_PI / 6;
+        camera.rotation += M_PI * elapsed;
       }
 
       if (e.type == SDL_KEYDOWN &&
           /* e.key.repeat == 0 && */
           e.key.keysym.sym == SDLK_d)
       {
-        camera.rotation -= M_PI / 6;
+        camera.rotation -= M_PI * elapsed;
       }
 
       if (camera.rotation >= 2 * M_PI) {
@@ -217,7 +227,8 @@ int main() {
 
     SDL_RenderCopy(renderer, buffer, NULL, NULL);
     SDL_RenderPresent(renderer);
-    SDL_Delay(16);
+    num_frames++;
+    /* SDL_Delay(16); */
   }
 
   //Destroy window
