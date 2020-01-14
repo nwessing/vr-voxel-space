@@ -283,6 +283,8 @@ int main() {
       camera.position_y += height_map.height;
     }
 
+    camera.position_height = get_image_grey(&height_map, camera.position_x, camera.position_y) + 30;
+
     SDL_LockTexture(buffer, NULL, (void**) &f_buffer.pixels, &f_buffer.pitch);
 
     memset(f_buffer.pixels, 0, f_buffer.height * f_buffer.pitch);
