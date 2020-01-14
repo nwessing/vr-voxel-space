@@ -127,7 +127,6 @@ void render(struct FrameBuffer *frame, struct ImageBuffer *color_map, struct Ima
   float cosphi = cos(camera->rotation);
   float sinphi = sin(camera->rotation);
 
-  /* int *y_buffer = malloc(frame->width * sizeof(int)); */
   for (int i = 0; i < frame->width; ++i) {
     frame->y_buffer[i] = frame->height;
   }
@@ -209,6 +208,11 @@ int main() {
   unsigned int time_last = SDL_GetTicks();
   unsigned int num_frames = 0;
   unsigned int time_begin = SDL_GetTicks();
+
+  bool turn_right = false;
+  bool turn_left = false;
+  bool move_forward = false;
+  bool move_backward = false;
   while (!quit)
   {
     unsigned int time = SDL_GetTicks();
@@ -219,6 +223,7 @@ int main() {
     time_last = time;
 
     SDL_Event e;
+
     while (SDL_PollEvent(&e) != 0)
     {
       if (e.type == SDL_QUIT ||
@@ -227,31 +232,55 @@ int main() {
         quit = true;
       }
 
-      if (e.type == SDL_KEYDOWN &&
-          e.key.keysym.sym == SDLK_w)
+      if (e.key.keysym.sym == SDLK_w)
       {
-        camera.position_y += 600 * elapsed;
+        move_forward = e.type == SDL_KEYDOWN;
       }
 
-      if (e.type == SDL_KEYDOWN &&
-          e.key.keysym.sym == SDLK_a)
+      if (e.key.keysym.sym == SDLK_s)
       {
-        camera.rotation += M_PI * elapsed;
+        move_backward = e.type == SDL_KEYDOWN;
       }
 
-      if (e.type == SDL_KEYDOWN &&
-          e.key.keysym.sym == SDLK_d)
+      if (e.key.keysym.sym == SDLK_a)
       {
-        camera.rotation -= M_PI * elapsed;
+        turn_left = e.type == SDL_KEYDOWN;
       }
 
-      if (camera.rotation >= 2 * M_PI) {
-        camera.rotation -= 2 * M_PI;
+      if (e.key.keysym.sym == SDLK_d)
+      {
+        turn_right = e.type == SDL_KEYDOWN;
       }
+    }
 
-      if (camera.rotation < 0) {
-        camera.rotation += 2 * M_PI;
-      }
+    if (move_forward || move_backward) {
+      int modifier = move_forward ? -1 : 1;
+      camera.position_y += modifier * cos(camera.rotation) * 600 * elapsed;
+      camera.position_x += modifier * sin(camera.rotation) * 600 * elapsed;
+    }
+
+    if (turn_left || turn_right) {
+      int modifier = turn_left ? 1 : -1;
+      camera.rotation += modifier * M_PI * elapsed;
+    }
+
+    while (camera.rotation >= 2 * M_PI) {
+      camera.rotation -= 2 * M_PI;
+    }
+
+    while (camera.rotation < 0) {
+      camera.rotation += 2 * M_PI;
+    }
+
+    camera.position_x = camera.position_x % height_map.width;
+    camera.position_y = camera.position_y % height_map.height;
+
+    if (camera.position_x < 0) {
+      camera.position_x += height_map.width;
+    }
+
+    if (camera.position_y < 0) {
+      camera.position_y += height_map.height;
     }
 
     SDL_LockTexture(buffer, NULL, (void**) &f_buffer.pixels, &f_buffer.pitch);
