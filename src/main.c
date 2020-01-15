@@ -109,13 +109,23 @@ void put_pixel(struct FrameBuffer *frame, struct Color color, int x, int y) {
   frame->pixels[x + (y * frame->pitch / 4)] = (color.r << 24) | (color.g << 16) | (color.b << 8) | 0x000000FF;
 }
 
-void render_vertical_line(struct FrameBuffer *frame, int x, int y_start, int y_end, struct Color color) {
-  if (x < 0 || x >= frame->width || y_start < 0 || y_end < 0 || y_start >= frame->height || y_end >= frame->height) {
-    return;
+inline int clamp(int position, int min, int max) {
+  if (position < min) {
+    return min;
   }
 
-  assert(x >= 0 && x < frame->width);
-  assert(y_start >= 0 && y_start < frame->height);
+  if (position > max) {
+    return max;
+  }
+
+  return position;
+}
+
+void render_vertical_line(struct FrameBuffer *frame, int x, int y_start, int y_end, struct Color color) {
+  x = clamp(x, 0, frame->width - 1);
+  y_start = clamp(y_start, 0, frame->height - 1);
+  y_end = clamp(y_end, 0, frame->height - 1);
+
   assert(y_end >= 0 && y_end < frame->height);
 
   for (int y = y_start; y < y_end; ++y) {
