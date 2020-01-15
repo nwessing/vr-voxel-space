@@ -175,7 +175,7 @@ int main() {
   }
 
   //Create window
-  SDL_Window *window = SDL_CreateWindow("VR Voxel Space", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
+  SDL_Window *window = SDL_CreateWindow("VR Voxel Space", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
   if(window == NULL)
   {
       printf("Window could not be created! SDL_Error: %s\n", SDL_GetError());
@@ -240,6 +240,12 @@ int main() {
           e.key.keysym.sym == SDLK_q)
       {
         quit = true;
+      }
+
+      if (e.key.keysym.sym == SDLK_f && e.key.repeat == 0 && e.type == SDL_KEYDOWN) {
+        unsigned int flags = SDL_GetWindowFlags(window);
+        unsigned int new_mode = (flags & SDL_WINDOW_FULLSCREEN) == 0 ? SDL_WINDOW_FULLSCREEN : 0;
+        SDL_SetWindowFullscreen(window, new_mode);
       }
 
       if (e.key.keysym.sym == SDLK_w)
