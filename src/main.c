@@ -1,4 +1,7 @@
+#include <glad/glad.h>
 #include "SDL2/SDL.h"
+#include "LibOVR/OVR_CAPI.h"
+#include "LibOVR/OVR_CAPI_GL.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #include "stdbool.h"
@@ -166,7 +169,69 @@ void render(struct FrameBuffer *frame, struct ImageBuffer *color_map, struct Ima
   }
 }
 
-int main() {
+int init_ovr(void) {
+  ovrResult init_result = ovr_Initialize(NULL);
+  if (OVR_FAILURE(init_result)) {
+    ovrErrorInfo error_info;
+    ovr_GetLastErrorInfo(&error_info);
+    printf("ovr_Initialize failed: %s\n", error_info.ErrorString);
+    return 1;
+  }
+
+  ovrSession session;
+  ovrGraphicsLuid luid;
+  ovrResult create_result = ovr_Create(&session, &luid);
+  if(OVR_FAILURE(create_result)) {
+    ovrErrorInfo error_info;
+    ovr_GetLastErrorInfo(&error_info);
+    printf("ovr_Create failed: %s\n", error_info.ErrorString);
+    return 1;
+  }
+
+  ovrHmdDesc hmd_desc = ovr_GetHmdDesc(session);
+  printf("HMD Type: %i\n", hmd_desc.Type);
+  printf("HMD Manufacturer: %s\n", hmd_desc.Manufacturer);
+  ovrSizei resolution = hmd_desc.Resolution;
+  printf("HMD Resolution: %i x %i\n", resolution.w, resolution.h);
+  // printf("HMD ProductId: %s\n", hmd_desc.ProductId);
+
+  ovrFovPort left_fov = hmd_desc.DefaultEyeFov[ovrEye_Left];
+  ovrFovPort right_fov = hmd_desc.DefaultEyeFov[ovrEye_Right];
+  ovrSizei recommenedTex0Size = ovr_GetFovTextureSize(session, ovrEye_Left, left_fov , 1.0f);
+  ovrSizei recommenedTex1Size = ovr_GetFovTextureSize(session, ovrEye_Right, right_fov, 1.0f);
+  ovrSizei bufferSize;
+  bufferSize.w  = recommenedTex0Size.w + recommenedTex1Size.w;
+  bufferSize.h = max ( recommenedTex0Size.h, recommenedTex1Size.h );
+
+  ovrTextureSwapChainDesc chain_desc = {0};
+  chain_desc.Type = ovrTexture_2D;
+  chain_desc.ArraySize = 1;
+  chain_desc.Format = OVR_FORMAT_R8G8B8A8_UNORM_SRGB;
+  chain_desc.Width = bufferSize.w;
+  chain_desc.Height = bufferSize.h;
+  chain_desc.MipLevels = 1;
+  chain_desc.SampleCount = 1;
+  chain_desc.StaticImage = ovrFalse;
+
+  ovrTextureSwapChain chain;
+  ovrResult create_swap_chain_result = ovr_CreateTextureSwapChainGL(session, &chain_desc, &chain);
+  if (OVR_FAILURE(create_swap_chain_result)) {
+    ovrErrorInfo error_info;
+    ovr_GetLastErrorInfo(&error_info);
+    printf("ovr_CreateTextureSwapChainGL failed: %s\n", error_info.ErrorString);
+    return 1;
+  }
+
+  // ovrResult create_swap_chain_result = ovr_GetTextureSwapChainLength(session, &chain, &chain_len);
+
+
+  ovr_Destroy(session);
+  ovr_Shutdown();
+
+  return 0;
+}
+
+int main(void) {
   //Initialize SDL
   if(SDL_Init(SDL_INIT_VIDEO) < 0 )
   {
@@ -175,12 +240,36 @@ int main() {
   }
 
   //Create window
-  SDL_Window *window = SDL_CreateWindow("VR Voxel Space", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+  SDL_Window *window = SDL_CreateWindow("VR Voxel Space", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
   if(window == NULL)
   {
       printf("Window could not be created! SDL_Error: %s\n", SDL_GetError());
       return 1;
   }
+
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+
+
+  SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+  SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+
+  SDL_GLContext gl_context = SDL_GL_CreateContext(window);
+  char *sdl_error = SDL_GetError();
+  if (*sdl_error != '\0') {
+    printf("ERROR: %s\n", sdl_error);
+    return 1;
+  }
+
+	if (!gladLoadGLLoader((GLADloadproc) SDL_GL_GetProcAddress))
+	{
+		printf("Failed to initialize GLAD\n");
+		return 1;
+	}
+
+  glEnable(GL_FRAMEBUFFER_SRGB);
+
+  init_ovr();
 
   SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
   SDL_Texture* buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, SCREEN_WIDTH, SCREEN_HEIGHT);
@@ -325,4 +414,3 @@ int main() {
 
   return 0;
 }
-
