@@ -8,19 +8,43 @@
 #include "stdio.h"
 #include "stdint.h"
 #include "math.h"
+#include "shader.h"
 
 #define SCREEN_WIDTH 800
 #define SCREEN_HEIGHT 640
 
-typedef uint8_t u8;
-typedef uint32_t u32;
-typedef int8_t i8;
-typedef int32_t i32;
+const char *VERTEX_SHADER_SOURCE = "\n\
+#version 330 core\n\
+layout (location = 0) in vec2 aPos;\n\
+\n\
+out vec2 TexCoords;\n\
+\n\
+void main()\n\
+{\n\
+    gl_Position = vec4(aPos.x, -aPos.y, 0.0, 1.0); \n\
+    TexCoords = vec2((aPos.x + 1.0) / 2.0, (aPos.y + 1.0) / 2.0);\n\
+}";
+
+const char* FRAGMENT_SHADER_SOURCE = "\n\
+#version 330 core\n\
+out vec4 FragColor;\n\
+\n\
+in vec2 TexCoords;\n\
+\n\
+uniform sampler2D screenTexture;\n\
+\n\
+void main()\n\
+{ \n\
+    vec4 yes = texture(screenTexture, TexCoords);\n\
+    // TODO why is this backwards?
+    FragColor = vec4(yes.a, yes.b, yes.g, yes.r);\n\
+    //FragColor = texture(screenTexture, TexCoords);\n\
+}";
 
 struct FrameBuffer {
   int width;
   int height;
-  unsigned int *pixels;
+  int32_t *pixels;
   int pitch;
   int *y_buffer;
 };
@@ -28,15 +52,15 @@ struct FrameBuffer {
 struct ImageBuffer {
   int width;
   int height;
-  unsigned char *pixels;
+  uint8_t *pixels;
   int num_channels;
 };
 
 struct Color {
-  unsigned char r;
-  unsigned char g;
-  unsigned char b;
-  unsigned char a;
+  uint8_t r;
+  uint8_t g;
+  uint8_t b;
+  uint8_t a;
 };
 
 struct Camera {
@@ -47,6 +71,26 @@ struct Camera {
   int position_x;
   int position_y;
   int position_height;
+};
+
+struct OpenGLData {
+  GLuint frame_buffer;
+  GLuint shader_program;
+  GLuint vbo;
+  GLuint vao;
+  GLuint tex_id;
+  uint32_t vao_num_vertices;
+};
+
+struct vr_data {
+  ovrSession session;
+  ovrEyeRenderDesc eye_render_desc[2];
+  ovrPosef hmd_to_eye_view_pose[2];
+  ovrHmdDesc hmd_desc;
+  ovrLayerEyeFov layer;
+
+  ovrTextureSwapChainDesc chain_desc;
+  ovrTextureSwapChain swap_chain;
 };
 
 void wrap_coordinates(struct ImageBuffer *image, int *x, int *y) {
@@ -169,7 +213,159 @@ void render(struct FrameBuffer *frame, struct ImageBuffer *color_map, struct Ima
   }
 }
 
-int init_ovr(void) {
+void check_opengl_error(char *name) {
+  GLenum gl_error = glGetError();
+  if (gl_error) {
+    printf("(%s) error: %i\n", name, gl_error);
+  }
+}
+
+void render_buffer_to_gl(struct FrameBuffer *frame, struct OpenGLData *gl, struct ImageBuffer *map) {
+  glViewport(0, 0, frame->width, frame->height);
+  glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+  glUseProgram(gl->shader_program);
+  glBindVertexArray(gl->vao);
+
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, gl->tex_id);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frame->width, frame->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, frame->pixels);
+  // printf("color map: %i x %i x %i\n", map->width, map->height, map->num_channels);
+  // glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, map->width, map->height, 0, GL_RGB, GL_UNSIGNED_BYTE, map->pixels);
+  // printf("Loaded texture\n");
+
+  check_opengl_error("glTexImage2D");
+  glDrawArrays(GL_TRIANGLES, 0, gl->vao_num_vertices);
+}
+
+void render_buffer_to_hmd(struct vr_data *vr, struct FrameBuffer *frame, int frame_index) {
+  assert(glGetError() == GL_NO_ERROR);
+
+  int current_index = 0;
+  ovr_GetTextureSwapChainCurrentIndex(vr->session, vr->swap_chain, &current_index);
+
+  int tex_id;
+  ovr_GetTextureSwapChainBufferGL(vr->session, vr->swap_chain, current_index, &tex_id);
+  glBindTexture(GL_TEXTURE_2D, tex_id);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+  ovrResult wait_begin_frame_result = ovr_WaitToBeginFrame(vr->session, frame_index);
+  if(OVR_FAILURE(wait_begin_frame_result)) {
+    ovrErrorInfo error_info;
+    ovr_GetLastErrorInfo(&error_info);
+    printf("ovr_WaitToBeginFrame failed: %s\n", error_info.ErrorString);
+    assert(false);
+  }
+
+  ovrResult begin_frame_result = ovr_BeginFrame(vr->session, frame_index);
+  if(OVR_FAILURE(begin_frame_result)) {
+    ovrErrorInfo error_info;
+    ovr_GetLastErrorInfo(&error_info);
+    printf("ovr_BeginFrame failed: %s\n", error_info.ErrorString);
+    assert(false);
+  }
+
+  // glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, tex_id, 0);
+  // glViewport(0, 0, 2528, 1408);
+
+	// glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+  int my_tex_id;
+  glGenTextures(1, &my_tex_id);
+  glBindTexture(GL_TEXTURE_2D, my_tex_id);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frame->width, frame->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, frame->pixels);
+  check_opengl_error("glTexImage2D");
+
+  // glBindFramebuffer(GL_FRAMEBUFFER, vr->gl_frame_buffer);
+  glBindFramebuffer(GL_FRAMEBUFFER, my_tex_id);
+  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex_id, 0);
+  // glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, curDepthTexId, 0);
+
+  glViewport(0, 0, vr->chain_desc.Width, vr->chain_desc.Height);
+  glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  glEnable(GL_FRAMEBUFFER_SRGB);
+
+  check_opengl_error("glEnable");
+
+  // glGenTextures(1, &tex_id);
+  // glBindTexture(GL_TEXTURE_2D, tex_id);
+  // check_opengl_error("glBindTexture");
+
+  // glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frame->width, frame->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, frame->pixels);
+  // check_opengl_error("glTexImage2D");
+
+  // GLenum gl_error = glGetError();
+  // if (gl_error) {
+  //   printf("error: %i\n", gl_error);
+  // }
+
+  ovrResult commit_result = ovr_CommitTextureSwapChain(vr->session, vr->swap_chain);
+  if(OVR_FAILURE(commit_result)) {
+    ovrErrorInfo error_info;
+    ovr_GetLastErrorInfo(&error_info);
+    printf("ovr_CommitTextureSwapChain failed: %s\n", error_info.ErrorString);
+    assert(false);
+  }
+
+  ovrLayerHeader* layers = &vr->layer.Header;
+  ovrResult end_frame_result = ovr_EndFrame(vr->session, frame_index, NULL, &layers, 1);
+  if(OVR_FAILURE(end_frame_result)) {
+    ovrErrorInfo error_info;
+    ovr_GetLastErrorInfo(&error_info);
+    printf("ovr_EndFrame failed: %s\n", error_info.ErrorString);
+    assert(false);
+  }
+
+  // printf("current_index = %i, tex_id = %i\n", current_index, tex_id);
+  // glBindTexture(GL_TEXTURE_2D, tex_id);
+}
+
+void create_gl_objects(struct OpenGLData *gl) {
+  float vertices[] = {
+    -1.0, -1.0, 0.0,
+    -1.0,  1.0, 0.0,
+     1.0,  1.0, 0.0,
+    -1.0, -1.0, 0.0,
+     1.0, -1.0, 0.0,
+     1.0,  1.0, 0.0,
+  };
+
+  glGenFramebuffers(1, &gl->frame_buffer);
+
+	glGenBuffers(1, &gl->vbo);
+
+	glBindBuffer(GL_ARRAY_BUFFER, gl->vbo);
+  gl->vao_num_vertices = sizeof(vertices) / 3;
+	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+	glGenVertexArrays(1, &gl->vao);
+	glBindVertexArray(gl->vao);
+	glBindBuffer(GL_ARRAY_BUFFER, gl->vbo);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+
+  gl->shader_program = create_shader(VERTEX_SHADER_SOURCE, FRAGMENT_SHADER_SOURCE);
+  assert(gl->shader_program);
+
+  glGenTextures(1, &gl->tex_id);
+  glBindTexture(GL_TEXTURE_2D, gl->tex_id);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+}
+
+int init_ovr(struct vr_data *vr) {
   ovrResult init_result = ovr_Initialize(NULL);
   if (OVR_FAILURE(init_result)) {
     ovrErrorInfo error_info;
@@ -193,7 +389,6 @@ int init_ovr(void) {
   printf("HMD Manufacturer: %s\n", hmd_desc.Manufacturer);
   ovrSizei resolution = hmd_desc.Resolution;
   printf("HMD Resolution: %i x %i\n", resolution.w, resolution.h);
-  // printf("HMD ProductId: %s\n", hmd_desc.ProductId);
 
   ovrFovPort left_fov = hmd_desc.DefaultEyeFov[ovrEye_Left];
   ovrFovPort right_fov = hmd_desc.DefaultEyeFov[ovrEye_Right];
@@ -222,27 +417,66 @@ int init_ovr(void) {
     return 1;
   }
 
+    // Initialize VR structures, filling out description.
+  ovrEyeRenderDesc eyeRenderDesc[2];
+  ovrPosef      hmdToEyeViewPose[2];
+  // ovrHmdDesc hmdDesc = ovr_GetHmdDesc(session);
+  eyeRenderDesc[0] = ovr_GetRenderDesc(session, ovrEye_Left, hmd_desc.DefaultEyeFov[0]);
+  eyeRenderDesc[1] = ovr_GetRenderDesc(session, ovrEye_Right, hmd_desc.DefaultEyeFov[1]);
+  hmdToEyeViewPose[0] = eyeRenderDesc[0].HmdToEyePose;
+  hmdToEyeViewPose[1] = eyeRenderDesc[1].HmdToEyePose;
+
+  // Initialize our single full screen Fov layer.
+  ovrLayerEyeFov layer;
+  layer.Header.Type      = ovrLayerType_EyeFov;
+  layer.Header.Flags     = 0;
+  layer.ColorTexture[0]  = chain;
+  layer.ColorTexture[1]  = chain;
+  layer.Fov[0]           = eyeRenderDesc[0].Fov;
+  layer.Fov[1]           = eyeRenderDesc[1].Fov;
+  layer.Viewport[0]      = (ovrRecti) {
+    .Pos = { .x = 0, .y = 0 },
+    .Size = { .w = bufferSize.w / 2, .h = bufferSize.h }
+  };
+  layer.Viewport[1] = (ovrRecti) {
+    .Pos = { .x = bufferSize.w / 2, .y = 0 },
+    .Size = { .w = bufferSize.w / 2, .h = bufferSize.h }
+  };
+
   // ovrResult create_swap_chain_result = ovr_GetTextureSwapChainLength(session, &chain, &chain_len);
 
+  // *tex_width = chain_desc.Width;
+  // *tex_height = chain_desc.Height;
+  // ovr_GetTextureSwapChainBufferGL(session, chain, 0, gl_tex_id);
+  // printf("GL TEXTURE ID: %i\n", *gl_tex_id);
 
-  ovr_Destroy(session);
-  ovr_Shutdown();
+  // ovr_Destroy(session);
+  // ovr_Shutdown();
+
+  vr->session = session;
+  vr->eye_render_desc[0] = eyeRenderDesc[0];
+  vr->eye_render_desc[1] = eyeRenderDesc[1];
+  vr->hmd_to_eye_view_pose[0] = hmdToEyeViewPose[0];
+  vr->hmd_to_eye_view_pose[1] = hmdToEyeViewPose[1];
+  vr->layer = layer;
+  vr->session = session;
+  vr->hmd_desc = hmd_desc;
+  vr->chain_desc = chain_desc;
+  vr->swap_chain = chain;
 
   return 0;
 }
 
 int main(void) {
   //Initialize SDL
-  if(SDL_Init(SDL_INIT_VIDEO) < 0 )
-  {
+  if(SDL_Init(SDL_INIT_VIDEO) < 0 ) {
       printf("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
       return 1;
   }
 
   //Create window
   SDL_Window *window = SDL_CreateWindow("VR Voxel Space", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
-  if(window == NULL)
-  {
+  if(window == NULL) {
       printf("Window could not be created! SDL_Error: %s\n", SDL_GetError());
       return 1;
   }
@@ -250,12 +484,11 @@ int main(void) {
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
 
-
   SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
   SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
 
   SDL_GLContext gl_context = SDL_GL_CreateContext(window);
-  char *sdl_error = SDL_GetError();
+  const char *sdl_error = SDL_GetError();
   if (*sdl_error != '\0') {
     printf("ERROR: %s\n", sdl_error);
     return 1;
@@ -267,12 +500,16 @@ int main(void) {
 		return 1;
 	}
 
-  glEnable(GL_FRAMEBUFFER_SRGB);
+	assert(glGetError() == GL_NO_ERROR);
 
-  init_ovr();
+  struct vr_data vr;
+  if (init_ovr(&vr)) {
+    printf("FAILED TO INIT OVR");
+    return 1;
+  }
 
-  SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-  SDL_Texture* buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, SCREEN_WIDTH, SCREEN_HEIGHT);
+  // SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+  // SDL_Texture* buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, SCREEN_WIDTH, SCREEN_HEIGHT);
 
   struct ImageBuffer color_map;
   color_map.pixels = stbi_load("C1W.png", &color_map.width, &color_map.height, &color_map.num_channels, 0);
@@ -291,7 +528,13 @@ int main(void) {
   struct FrameBuffer f_buffer;
   f_buffer.width = SCREEN_WIDTH;
   f_buffer.height = SCREEN_HEIGHT;
-  f_buffer.y_buffer = malloc(f_buffer.width * sizeof(int));
+  f_buffer.y_buffer = malloc(f_buffer.width * sizeof(int32_t));
+  f_buffer.pixels = malloc(f_buffer.width * f_buffer.height * sizeof(uint32_t));
+  f_buffer.pitch = f_buffer.width * sizeof(uint32_t);
+  printf("PITCH: %i\n", f_buffer.pitch);
+
+  struct OpenGLData gl;
+  create_gl_objects(&gl);
 
   struct Camera camera = {
     .distance = 300,
@@ -390,15 +633,22 @@ int main(void) {
 
     camera.position_height = get_image_grey(&height_map, camera.position_x, camera.position_y) + 30;
 
-    SDL_LockTexture(buffer, NULL, (void**) &f_buffer.pixels, &f_buffer.pitch);
+    // SDL_LockTexture(buffer, NULL, (void**) &f_buffer.pixels, &f_buffer.pitch);
+    // printf("PITCH: %i\n", f_buffer.pitch);
+    // assert(0);
 
-    memset(f_buffer.pixels, 0, f_buffer.height * f_buffer.pitch);
+    memset(f_buffer.pixels, 0x000000FF, f_buffer.height * f_buffer.pitch);
 
     render(&f_buffer, &color_map, &height_map, &camera);
-    SDL_UnlockTexture(buffer);
+    render_buffer_to_gl(&f_buffer, &gl, &color_map);
+    SDL_GL_SwapWindow(window);
+    // SDL_UnlockTexture(buffer);
 
-    SDL_RenderCopy(renderer, buffer, NULL, NULL);
-    SDL_RenderPresent(renderer);
+    // SDL_RenderCopy(renderer, buffer, NULL, NULL);
+    // SDL_RenderPresent(renderer);
+
+    // render_buffer_to_hmd(&vr, &f_buffer, num_frames);
+
     num_frames++;
     /* SDL_Delay(16); */
   }
@@ -408,9 +658,11 @@ int main(void) {
   //Destroy window
   SDL_DestroyWindow(window);
   stbi_image_free(color_map.pixels);
+  stbi_image_free(height_map.pixels);
 
   //Quit SDL subsystems
   SDL_Quit();
 
+  printf("EXIT\n");
   return 0;
 }
