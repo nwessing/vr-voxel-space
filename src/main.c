@@ -242,29 +242,34 @@ int main() {
         quit = true;
       }
 
+      if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+        printf("Window size changed to: %ix%i\n", e.window.data1, e.window.data2);
+
+        buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, e.window.data1, e.window.data2);
+        f_buffer.width = e.window.data1;
+        f_buffer.height = e.window.data2;
+        f_buffer.y_buffer = realloc(f_buffer.y_buffer, f_buffer.width * sizeof(int));
+      }
+
       if (e.key.keysym.sym == SDLK_f && e.key.repeat == 0 && e.type == SDL_KEYDOWN) {
         unsigned int flags = SDL_GetWindowFlags(window);
         unsigned int new_mode = (flags & SDL_WINDOW_FULLSCREEN) == 0 ? SDL_WINDOW_FULLSCREEN : 0;
         SDL_SetWindowFullscreen(window, new_mode);
       }
 
-      if (e.key.keysym.sym == SDLK_w)
-      {
+      if (e.key.keysym.sym == SDLK_w) {
         move_forward = e.type == SDL_KEYDOWN;
       }
 
-      if (e.key.keysym.sym == SDLK_s)
-      {
+      if (e.key.keysym.sym == SDLK_s) {
         move_backward = e.type == SDL_KEYDOWN;
       }
 
-      if (e.key.keysym.sym == SDLK_a)
-      {
+      if (e.key.keysym.sym == SDLK_a) {
         turn_left = e.type == SDL_KEYDOWN;
       }
 
-      if (e.key.keysym.sym == SDLK_d)
-      {
+      if (e.key.keysym.sym == SDLK_d) {
         turn_right = e.type == SDL_KEYDOWN;
       }
     }
