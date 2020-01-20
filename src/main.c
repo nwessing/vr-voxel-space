@@ -36,7 +36,7 @@ uniform sampler2D screenTexture;\n\
 void main()\n\
 { \n\
     vec4 yes = texture(screenTexture, TexCoords);\n\
-    // TODO why is this backwards?
+    // TODO why is this backwards?\n\
     FragColor = vec4(yes.a, yes.b, yes.g, yes.r);\n\
     //FragColor = texture(screenTexture, TexCoords);\n\
 }";
