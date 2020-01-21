@@ -222,7 +222,6 @@ void check_opengl_error(char *name) {
 }
 
 void render_buffer_to_gl(struct FrameBuffer *frame, struct OpenGLData *gl, struct ImageBuffer *map) {
-  glViewport(0, 0, frame->width, frame->height);
   glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -232,15 +231,12 @@ void render_buffer_to_gl(struct FrameBuffer *frame, struct OpenGLData *gl, struc
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, gl->tex_id);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frame->width, frame->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, frame->pixels);
-  // printf("color map: %i x %i x %i\n", map->width, map->height, map->num_channels);
-  // glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, map->width, map->height, 0, GL_RGB, GL_UNSIGNED_BYTE, map->pixels);
-  // printf("Loaded texture\n");
-
   check_opengl_error("glTexImage2D");
+
   glDrawArrays(GL_TRIANGLES, 0, gl->vao_num_vertices);
 }
 
-void render_buffer_to_hmd(struct vr_data *vr, struct FrameBuffer *frame, int frame_index) {
+void render_buffer_to_hmd(struct vr_data *vr, struct FrameBuffer *frame, struct OpenGLData *gl, struct ImageBuffer *image, int frame_index) {
   assert(glGetError() == GL_NO_ERROR);
 
   int current_index = 0;
@@ -253,6 +249,13 @@ void render_buffer_to_hmd(struct vr_data *vr, struct FrameBuffer *frame, int fra
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+
+  ovrTrackingState tracking_state = ovr_GetTrackingState(vr->session, 0, false);
+  ovrPosef eyePoses[2];
+  ovr_CalcEyePoses(tracking_state.HeadPose.ThePose, vr->hmd_to_eye_view_pose, eyePoses);
+  vr->layer.RenderPose[0] = eyePoses[0];
+  vr->layer.RenderPose[1] = eyePoses[1];
 
   ovrResult wait_begin_frame_result = ovr_WaitToBeginFrame(vr->session, frame_index);
   if(OVR_FAILURE(wait_begin_frame_result)) {
@@ -275,26 +278,29 @@ void render_buffer_to_hmd(struct vr_data *vr, struct FrameBuffer *frame, int fra
 
 	// glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-  int my_tex_id;
-  glGenTextures(1, &my_tex_id);
-  glBindTexture(GL_TEXTURE_2D, my_tex_id);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frame->width, frame->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, frame->pixels);
-  check_opengl_error("glTexImage2D");
+  // int my_tex_id;
+  // glGenTextures(1, &my_tex_id);
+  // glBindTexture(GL_TEXTURE_2D, my_tex_id);
+  // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  // glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frame->width, frame->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, frame->pixels);
+  // check_opengl_error("glTexImage2D");
 
-  // glBindFramebuffer(GL_FRAMEBUFFER, vr->gl_frame_buffer);
-  glBindFramebuffer(GL_FRAMEBUFFER, my_tex_id);
+  glBindFramebuffer(GL_FRAMEBUFFER, gl->frame_buffer);
+  glEnable(GL_FRAMEBUFFER_SRGB);
+  // glBindFramebuffer(GL_FRAMEBUFFER, my_tex_id);
   glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex_id, 0);
   // glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, curDepthTexId, 0);
 
-  glViewport(0, 0, vr->chain_desc.Width, vr->chain_desc.Height);
-  glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
-  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-  glEnable(GL_FRAMEBUFFER_SRGB);
+  for (int eye = 0; eye < 1; ++eye) {
+    glViewport(0, 0, vr->chain_desc.Width, vr->chain_desc.Height);
+    render_buffer_to_gl(frame, gl, image);
+  }
 
+  // glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+  // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   check_opengl_error("glEnable");
 
   // glGenTextures(1, &tex_id);
@@ -634,10 +640,12 @@ int main(void) {
     memset(f_buffer.pixels, 0, f_buffer.height * f_buffer.pitch);
 
     render(&f_buffer, &color_map, &height_map, &camera);
-    render_buffer_to_gl(&f_buffer, &gl, &color_map);
-    SDL_GL_SwapWindow(window);
 
-    // render_buffer_to_hmd(&vr, &f_buffer, num_frames);
+    // glViewport(0, 0, frame->width, frame->height);
+    // render_buffer_to_gl(&f_buffer, &gl, &color_map);
+    render_buffer_to_hmd(&vr, &f_buffer, &gl, &color_map, num_frames);
+    // SDL_GL_SwapWindow(window);
+
 
     num_frames++;
   }
