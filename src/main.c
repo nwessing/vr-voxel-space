@@ -35,16 +35,13 @@ uniform sampler2D screenTexture;\n\
 \n\
 void main()\n\
 { \n\
-    vec4 yes = texture(screenTexture, TexCoords);\n\
-    // TODO why is this backwards?\n\
-    FragColor = vec4(yes.a, yes.b, yes.g, yes.r);\n\
-    //FragColor = texture(screenTexture, TexCoords);\n\
+    FragColor = texture(screenTexture, TexCoords);\n\
 }";
 
 struct FrameBuffer {
   int width;
   int height;
-  int32_t *pixels;
+  uint8_t *pixels;
   int pitch;
   int *y_buffer;
 };
@@ -139,7 +136,7 @@ struct Color get_image_color(struct ImageBuffer *image, int x, int y) {
   if (image->num_channels == 2 || image->num_channels == 4) {
     result.a = image->pixels[offset_a];
   } else {
-    result.a = 0;
+    result.a = 255;
   }
 
   return result;
@@ -153,7 +150,11 @@ void put_pixel(struct FrameBuffer *frame, struct Color color, int x, int y) {
   assert(x >= 0 && x < frame->width);
   assert(y >= 0 && y < frame->height);
 
-  frame->pixels[x + (y * frame->pitch / 4)] = (color.r << 24) | (color.g << 16) | (color.b << 8) | 0x000000FF;
+  int32_t offset = (x * 4) + (y * frame->pitch);
+  frame->pixels[offset] = color.r;
+  frame->pixels[offset + 1] = color.g;
+  frame->pixels[offset + 2] = color.b;
+  frame->pixels[offset + 3] = color.a;
 }
 
 inline int clamp(int position, int min, int max) {
@@ -508,9 +509,6 @@ int main(void) {
     return 1;
   }
 
-  // SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-  // SDL_Texture* buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, SCREEN_WIDTH, SCREEN_HEIGHT);
-
   struct ImageBuffer color_map;
   color_map.pixels = stbi_load("C1W.png", &color_map.width, &color_map.height, &color_map.num_channels, 0);
   if (color_map.pixels == NULL) {
@@ -529,7 +527,7 @@ int main(void) {
   f_buffer.width = SCREEN_WIDTH;
   f_buffer.height = SCREEN_HEIGHT;
   f_buffer.y_buffer = malloc(f_buffer.width * sizeof(int32_t));
-  f_buffer.pixels = malloc(f_buffer.width * f_buffer.height * sizeof(uint32_t));
+  f_buffer.pixels = malloc(f_buffer.width * f_buffer.height * sizeof(uint8_t) * 4);
   f_buffer.pitch = f_buffer.width * sizeof(uint32_t);
   printf("PITCH: %i\n", f_buffer.pitch);
 
@@ -633,27 +631,19 @@ int main(void) {
 
     camera.position_height = get_image_grey(&height_map, camera.position_x, camera.position_y) + 30;
 
-    // SDL_LockTexture(buffer, NULL, (void**) &f_buffer.pixels, &f_buffer.pitch);
-    // printf("PITCH: %i\n", f_buffer.pitch);
-    // assert(0);
-
-    memset(f_buffer.pixels, 0x000000FF, f_buffer.height * f_buffer.pitch);
+    memset(f_buffer.pixels, 0, f_buffer.height * f_buffer.pitch);
 
     render(&f_buffer, &color_map, &height_map, &camera);
     render_buffer_to_gl(&f_buffer, &gl, &color_map);
     SDL_GL_SwapWindow(window);
-    // SDL_UnlockTexture(buffer);
-
-    // SDL_RenderCopy(renderer, buffer, NULL, NULL);
-    // SDL_RenderPresent(renderer);
 
     // render_buffer_to_hmd(&vr, &f_buffer, num_frames);
 
     num_frames++;
-    /* SDL_Delay(16); */
   }
 
   free(f_buffer.y_buffer);
+  free(f_buffer.pixels);
 
   //Destroy window
   SDL_DestroyWindow(window);
