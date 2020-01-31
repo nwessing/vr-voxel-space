@@ -43,11 +43,13 @@ void main()\n\
 }";
 
 struct FrameBuffer {
-  int width;
-  int height;
+  int32_t width;
+  int32_t height;
+  int32_t clip_left_x;
+  int32_t clip_right_x;
   uint8_t *pixels;
-  int pitch;
-  int *y_buffer;
+  int32_t pitch;
+  int32_t *y_buffer;
 };
 
 struct ImageBuffer {
@@ -96,11 +98,11 @@ struct vr_data {
 };
 
 void wrap_coordinates(struct ImageBuffer *image, int *x, int *y) {
-  if (*x < 0) {
+  while (*x < 0) {
     *x += image->width;
   }
 
-  if (*y < 0) {
+  while (*y < 0) {
     *y += image->height;
   }
 
@@ -194,16 +196,20 @@ void render(struct FrameBuffer *frame, struct ImageBuffer *color_map, struct Ima
     frame->y_buffer[i] = frame->height;
   }
 
-  for (int z = 1; z < camera->distance; ++z) {
-    float point_left_x = (-cosphi * z - sinphi * z) + camera->position_x;
-    float point_left_y = (-cosphi * z + sinphi * z) + camera->position_y;
+  float delta_z = 1.0f;
+  for (float z = 1; z < camera->distance; z += delta_z) {
+    float a_point_left_x = (-cosphi * z - sinphi * z) + camera->position_x;
+    float a_point_left_y = (-cosphi * z + sinphi * z) + camera->position_y;
     float point_right_x = (cosphi * z - sinphi * z) + camera->position_x;
     float point_right_y = (-cosphi * z - sinphi * z) + camera->position_y;
 
-    float dx = (point_right_x - point_left_x) / (float) frame->width;
-    float dy = (point_right_y - point_left_y) / (float) frame->width;
+    float dx = (point_right_x - a_point_left_x) / (float) frame->width;
+    float dy = (point_right_y - a_point_left_y) / (float) frame->width;
 
-    for (int x = 0; x < frame->width; x++) {
+    for (int x = frame->clip_left_x; x < frame->clip_right_x; x++) {
+      float point_left_x = a_point_left_x + (x * dx);
+      float point_left_y = a_point_left_y + (x * dy);
+
       int terrain_height = get_image_grey(height_map, point_left_x, point_left_y);
       int height_on_screen = ((float) (camera->position_height - terrain_height) / z) * camera->scale_height + camera->horizon;
 
@@ -213,9 +219,11 @@ void render(struct FrameBuffer *frame, struct ImageBuffer *color_map, struct Ima
         render_vertical_line(frame, x, height_on_screen, y_start, color);
         frame->y_buffer[x] = height_on_screen;
       }
-      point_left_x += dx;
-      point_left_y += dy;
+      // point_left_x += dx;
+      // point_left_y += dy;
     }
+
+    delta_z += 0.005f;
   }
 }
 
@@ -233,29 +241,32 @@ void render_buffer_to_gl(struct FrameBuffer *frame, struct OpenGLData *gl, int c
   glUseProgram(gl->shader_program);
   glBindVertexArray(gl->vao);
 
-  int32_t clipped_buffer_width = (frame->width - (clip * 2));
-  uint8_t *clipped_buffer = malloc(clipped_buffer_width * frame->height * 4);
-  for (uint32_t i = 0; i < clipped_buffer_width * frame->height; i++) {
-    int32_t column = i % clipped_buffer_width;
-    int32_t row = i / clipped_buffer_width;
+  // int32_t clipped_buffer_width = (frame->width - (clip * 2));
+  // uint8_t *clipped_buffer = malloc(clipped_buffer_width * frame->height * 4);
+  // for (uint32_t i = 0; i < clipped_buffer_width * frame->height; i++) {
+  //   int32_t column = i % clipped_buffer_width;
+  //   int32_t row = i / clipped_buffer_width;
 
-    bool right = column >= clipped_buffer_width / 2;
-    int32_t source_row = row;
-    int32_t source_column = column;
-    if (right) {
-      source_column = column + (clip * 2);
-    }
+  //   bool right = column >= clipped_buffer_width / 2;
+  //   int32_t source_row = row;
+  //   int32_t source_column = column;
+  //   if (right) {
+  //     source_column = column + (clip * 2);
+  //   }
 
-    int32_t offset = (source_column * 4) + (source_row * frame->pitch);
-    for (int32_t component = 0; component < 4; component++) {
-      clipped_buffer[(i * 4) + component] = frame->pixels[offset + component];
-    }
-  }
+  //   int32_t offset = (source_column * 4) + (source_row * frame->pitch);
+  //   for (int32_t component = 0; component < 4; component++) {
+  //     clipped_buffer[(i * 4) + component] = frame->pixels[offset + component];
+  //   }
+  // }
 
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, gl->tex_id);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, clipped_buffer_width, frame->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, clipped_buffer);
-  free(clipped_buffer);
+  glPixelStorei(GL_UNPACK_ROW_LENGTH, frame->pitch / 4 );
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frame->width - (clip * 2), frame->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, frame->pixels);
+  glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+  // glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, clipped_buffer_width, frame->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, clipped_buffer);
+  // free(clipped_buffer);
   check_opengl_error("glTexImage2D");
 
   glDrawArrays(GL_TRIANGLES, 0, gl->vao_num_vertices);
@@ -309,12 +320,15 @@ void render_buffer_to_hmd(struct vr_data *vr, struct FrameBuffer *frame, struct 
     eye_buffer.width = frame->width / 2;
     eye_buffer.height = frame->height;
     eye_buffer.pitch = frame->pitch;
-    eye_buffer.pixels = &frame->pixels[eye * (frame->width / 2) * 4];
+    // eye_buffer.pixels = &frame->pixels[eye * (frame->width / 2) * 4];
     eye_buffer.y_buffer = &frame->y_buffer[eye * (eye_buffer.width / 2)];
+    eye_buffer.clip_left_x = eye == 0 ? 0 : camera->clip;
+    eye_buffer.clip_right_x = eye_buffer.width - (eye == 0 ? camera->clip : 0);
+    eye_buffer.pixels = eye == 0 ? frame->pixels : &frame->pixels[(eye_buffer.width - camera->clip * 2) * 4];
 
-    struct Camera eye_cam = *camera;
     int eye_mod = eye == 1 ? 1 : -1;
     int eye_dist = 3;
+    struct Camera eye_cam = *camera;
     eye_cam.position_x += (int)(eye_mod * eye_dist * sin(eye_cam.rotation + (M_PI / 2)));
     eye_cam.position_y += (int)(eye_mod * eye_dist * cos(eye_cam.rotation + (M_PI / 2)));
 
@@ -539,10 +553,10 @@ int main(void) {
   }
 
   struct FrameBuffer f_buffer;
-  // f_buffer.width = SCREEN_WIDTH;
-  // f_buffer.height = SCREEN_HEIGHT;
-  f_buffer.width = 2528;
-  f_buffer.height = 1408;
+  f_buffer.width = 1264;
+  f_buffer.height = 704;
+  // f_buffer.width = 2528;
+  // f_buffer.height = 1408;
   f_buffer.y_buffer = malloc(f_buffer.width * sizeof(int32_t));
   f_buffer.pixels = malloc(f_buffer.width * f_buffer.height * sizeof(uint8_t) * 4);
   f_buffer.pitch = f_buffer.width * sizeof(uint32_t);
@@ -552,14 +566,14 @@ int main(void) {
   create_gl_objects(&gl);
 
   struct Camera camera = {
-    .distance = 300,
+    .distance = 800,
     .rotation = M_PI,
-    .horizon = 700,
-    .scale_height = 120,
+    .horizon = f_buffer.height / 2,
+    .scale_height = f_buffer.height * 0.35,
     .position_x = 436,
     .position_y = 54,
     .position_height = 50,
-    .clip = 163
+    .clip = .06f * f_buffer.width //163
   };
 
   bool quit = false;
