@@ -1,9 +1,14 @@
 #include <glad/glad.h>
-#include "SDL2/SDL.h"
+#include <SDL2/SDL.h>
+
+#ifdef INCLUDE_LIBOVR
 #include "LibOVR/OVR_CAPI.h"
 #include "LibOVR/OVR_CAPI_GL.h"
+#endif
+
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+
 #include "stdbool.h"
 #include "stdio.h"
 #include "stdint.h"
@@ -86,6 +91,7 @@ struct OpenGLData {
   uint32_t vao_num_vertices;
 };
 
+#ifdef INCLUDE_LIBOVR
 struct vr_data {
   ovrSession session;
   ovrEyeRenderDesc eye_render_desc[2];
@@ -96,6 +102,7 @@ struct vr_data {
   ovrTextureSwapChainDesc chain_desc;
   ovrTextureSwapChain swap_chain;
 };
+#endif
 
 void wrap_coordinates(struct ImageBuffer *image, int *x, int *y) {
   while (*x < 0) {
@@ -272,6 +279,7 @@ void render_buffer_to_gl(struct FrameBuffer *frame, struct OpenGLData *gl, int c
   glDrawArrays(GL_TRIANGLES, 0, gl->vao_num_vertices);
 }
 
+#ifdef INCLUDE_LIBOVR
 void render_buffer_to_hmd(struct vr_data *vr, struct FrameBuffer *frame, struct OpenGLData *gl,
   struct ImageBuffer *color_map, struct ImageBuffer *height_map, struct Camera *camera, int frame_index) {
   assert(glGetError() == GL_NO_ERROR);
@@ -358,6 +366,7 @@ void render_buffer_to_hmd(struct vr_data *vr, struct FrameBuffer *frame, struct 
   // printf("current_index = %i, tex_id = %i\n", current_index, tex_id);
   // glBindTexture(GL_TEXTURE_2D, tex_id);
 }
+#endif
 
 void create_gl_objects(struct OpenGLData *gl) {
   float vertices[] = {
@@ -392,9 +401,9 @@ void create_gl_objects(struct OpenGLData *gl) {
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
 }
 
+#ifdef INCLUDE_LIBOVR
 int init_ovr(struct vr_data *vr) {
   ovrResult init_result = ovr_Initialize(NULL);
   if (OVR_FAILURE(init_result)) {
@@ -496,47 +505,60 @@ int init_ovr(struct vr_data *vr) {
 
   return 0;
 }
+#endif
 
 int main(void) {
-  //Initialize SDL
   if(SDL_Init(SDL_INIT_VIDEO) < 0 ) {
       printf("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
       return 1;
   }
+  
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3); 
+  SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+  SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
 
-  //Create window
   SDL_Window *window = SDL_CreateWindow("VR Voxel Space", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
   if(window == NULL) {
       printf("Window could not be created! SDL_Error: %s\n", SDL_GetError());
       return 1;
   }
 
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-
-  SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-  SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-
   SDL_GLContext gl_context = SDL_GL_CreateContext(window);
-  const char *sdl_error = SDL_GetError();
+  char *sdl_error = SDL_GetError();
   if (*sdl_error != '\0') {
     printf("ERROR: %s\n", sdl_error);
     return 1;
   }
+
+  SDL_GL_MakeCurrent(window, gl_context);
 
 	if (!gladLoadGLLoader((GLADloadproc) SDL_GL_GetProcAddress))
 	{
 		printf("Failed to initialize GLAD\n");
 		return 1;
 	}
+	
+  printf("%s\n", glGetString(GL_VERSION));
+
+	sdl_error = SDL_GetError();
+  if (*sdl_error != '\0') {
+    printf("ERROR: %s\n", sdl_error);
+    //return 1;
+  }                               
+	
 
 	assert(glGetError() == GL_NO_ERROR);
 
+#ifdef INCLUDE_LIBOVR
   struct vr_data vr;
   if (init_ovr(&vr)) {
     printf("FAILED TO INIT OVR");
     return 1;
   }
+#endif
 
   struct ImageBuffer color_map;
   color_map.pixels = stbi_load("C1W.png", &color_map.width, &color_map.height, &color_map.num_channels, 0);
@@ -557,12 +579,14 @@ int main(void) {
   f_buffer.height = 704;
   // f_buffer.width = 2528;
   // f_buffer.height = 1408;
+  f_buffer.clip_left_x = 0,
+  f_buffer.clip_right_x = f_buffer.width,
   f_buffer.y_buffer = malloc(f_buffer.width * sizeof(int32_t));
   f_buffer.pixels = malloc(f_buffer.width * f_buffer.height * sizeof(uint8_t) * 4);
   f_buffer.pitch = f_buffer.width * sizeof(uint32_t);
   printf("PITCH: %i\n", f_buffer.pitch);
 
-  struct OpenGLData gl;
+  struct OpenGLData gl = {0};
   create_gl_objects(&gl);
 
   struct Camera camera = {
@@ -676,14 +700,15 @@ int main(void) {
     camera.position_height = get_image_grey(&height_map, camera.position_x, camera.position_y) + 50;
     memset(f_buffer.pixels, 0, f_buffer.height * f_buffer.pitch);
 
-
+#ifdef INCLUDE_LIBOVR
     render_buffer_to_hmd(&vr, &f_buffer, &gl, &color_map, &height_map, &camera, num_frames);
-
-    // glViewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
-    // glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    // render_buffer_to_gl(&f_buffer, &gl, camera.clip);
-    // SDL_GL_SwapWindow(window);
-
+#else
+    glViewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    render(&f_buffer, &color_map, &height_map, &camera);
+    render_buffer_to_gl(&f_buffer, &gl, camera.clip);
+    SDL_GL_SwapWindow(window);
+#endif
 
     num_frames++;
   }

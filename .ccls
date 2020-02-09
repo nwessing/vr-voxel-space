@@ -1,0 +1,7 @@
+clang
+-I~/headers  
+-lSDL2 
+-Wall 
+-Wextra 
+-pedantic 
+-g 

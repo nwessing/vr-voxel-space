@@ -3,4 +3,5 @@
 *.pdb
 *.ilk
 *.dSYM
+.ccls-cache/
 vr-voxel-space
