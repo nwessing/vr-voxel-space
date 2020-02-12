@@ -2,8 +2,7 @@
 #include <SDL2/SDL.h>
 
 #ifdef INCLUDE_LIBOVR
-#include "LibOVR/OVR_CAPI.h"
-#include "LibOVR/OVR_CAPI_GL.h"
+#include "vr.h"
 #endif
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -14,6 +13,7 @@
 #include "stdint.h"
 #include "math.h"
 #include "shader.h"
+#include "types.h"
 
 #define SCREEN_WIDTH 800
 #define SCREEN_HEIGHT 640
@@ -46,63 +46,6 @@ void main()\n\
     }\n\
     FragColor = texColor;\n\
 }";
-
-struct FrameBuffer {
-  int32_t width;
-  int32_t height;
-  int32_t clip_left_x;
-  int32_t clip_right_x;
-  uint8_t *pixels;
-  int32_t pitch;
-  int32_t *y_buffer;
-};
-
-struct ImageBuffer {
-  int width;
-  int height;
-  uint8_t *pixels;
-  int num_channels;
-};
-
-struct Color {
-  uint8_t r;
-  uint8_t g;
-  uint8_t b;
-  uint8_t a;
-};
-
-struct Camera {
-  int distance;
-  float rotation;
-  int horizon;
-  int scale_height;
-  int position_x;
-  int position_y;
-  int position_height;
-  int clip;
-};
-
-struct OpenGLData {
-  GLuint frame_buffer;
-  GLuint shader_program;
-  GLuint vbo;
-  GLuint vao;
-  GLuint tex_id;
-  uint32_t vao_num_vertices;
-};
-
-#ifdef INCLUDE_LIBOVR
-struct vr_data {
-  ovrSession session;
-  ovrEyeRenderDesc eye_render_desc[2];
-  ovrPosef hmd_to_eye_view_pose[2];
-  ovrHmdDesc hmd_desc;
-  ovrLayerEyeFov layer;
-
-  ovrTextureSwapChainDesc chain_desc;
-  ovrTextureSwapChain swap_chain;
-};
-#endif
 
 void wrap_coordinates(struct ImageBuffer *image, int *x, int *y) {
   while (*x < 0) {
@@ -512,11 +455,11 @@ int main(void) {
       printf("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
       return 1;
   }
-  
+
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3); 
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
   SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
   SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
 
@@ -540,25 +483,17 @@ int main(void) {
 		printf("Failed to initialize GLAD\n");
 		return 1;
 	}
-	
+
   printf("%s\n", glGetString(GL_VERSION));
 
 	sdl_error = SDL_GetError();
   if (*sdl_error != '\0') {
     printf("ERROR: %s\n", sdl_error);
     //return 1;
-  }                               
-	
+  }
+
 
 	assert(glGetError() == GL_NO_ERROR);
-
-#ifdef INCLUDE_LIBOVR
-  struct vr_data vr;
-  if (init_ovr(&vr)) {
-    printf("FAILED TO INIT OVR");
-    return 1;
-  }
-#endif
 
   struct ImageBuffer color_map;
   color_map.pixels = stbi_load("C1W.png", &color_map.width, &color_map.height, &color_map.num_channels, 0);
@@ -609,6 +544,7 @@ int main(void) {
   bool turn_left = false;
   bool move_forward = false;
   bool move_backward = false;
+  bool render_stereo = false;
   while (!quit)
   {
     unsigned int time = SDL_GetTicks();
@@ -665,6 +601,10 @@ int main(void) {
         camera.clip--;
         printf("clip %i\n", camera.clip);
       }
+      if (e.key.keysym.sym == SDLK_v && e.key.repeat == 0 && e.type == SDL_KEYDOWN)
+      {
+        render_stereo = !render_stereo;
+      }
     }
 
     if (move_forward || move_backward) {
@@ -703,11 +643,34 @@ int main(void) {
 #ifdef INCLUDE_LIBOVR
     render_buffer_to_hmd(&vr, &f_buffer, &gl, &color_map, &height_map, &camera, num_frames);
 #else
-    glViewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+    if (render_stereo) {
+      for (int eye = 0; eye < 2; ++eye) {
+        struct FrameBuffer eye_buffer;
+        eye_buffer.width = f_buffer.width / 2;
+        eye_buffer.height = f_buffer.height;
+        eye_buffer.pitch = f_buffer.pitch;
+        eye_buffer.y_buffer = &f_buffer.y_buffer[eye * (eye_buffer.width / 2)];
+        eye_buffer.clip_left_x = eye == 0 ? 0 : camera.clip;
+        eye_buffer.clip_right_x = eye_buffer.width - (eye == 0 ? camera.clip : 0);
+        eye_buffer.pixels = eye == 0 ? f_buffer.pixels : &f_buffer.pixels[(eye_buffer.width - camera.clip * 2) * 4];
+
+        int eye_mod = eye == 1 ? 1 : -1;
+        int eye_dist = 3;
+        struct Camera eye_cam = camera;
+        eye_cam.position_x += (int)(eye_mod * eye_dist * sin(eye_cam.rotation + (M_PI / 2)));
+        eye_cam.position_y += (int)(eye_mod * eye_dist * cos(eye_cam.rotation + (M_PI / 2)));
+
+        render(&eye_buffer, &color_map, &height_map, &eye_cam);
+      }
+    } else {
+      render(&f_buffer, &color_map, &height_map, &camera);
+    }
+
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    render(&f_buffer, &color_map, &height_map, &camera);
+    glViewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
     render_buffer_to_gl(&f_buffer, &gl, camera.clip);
     SDL_GL_SwapWindow(window);
+
 #endif
 
     num_frames++;
