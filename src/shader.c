@@ -1,6 +1,6 @@
 #include "stdint.h"
 #include "stdio.h"
-#include <glad/glad.h>
+#include "glad/glad.h"
 
 static int32_t check_shader_compile_errors(uint32_t shader)
 {

@@ -1,4 +1,4 @@
-#include <glad/glad.h>
+#include "glad/glad.h"
 #include <SDL2/SDL.h>
 
 #ifdef INCLUDE_LIBOVR
@@ -8,6 +8,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+#include "assert.h"
 #include "stdbool.h"
 #include "stdio.h"
 #include "stdint.h"
