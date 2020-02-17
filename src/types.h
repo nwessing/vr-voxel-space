@@ -1,5 +1,6 @@
 #pragma once
 #include "stdint.h"
+#include "glad/glad.h"
 
 struct FrameBuffer {
   int32_t width;
@@ -17,6 +18,8 @@ struct ImageBuffer {
   uint8_t *pixels;
   int num_channels;
 };
+
+typedef float V3[3];
 
 struct Color {
   uint8_t r;
@@ -41,7 +44,12 @@ struct OpenGLData {
   GLuint shader_program;
   GLuint vbo;
   GLuint vao;
+  GLuint map_vbo;
+  GLuint map_vao;
   GLuint tex_id;
+  GLuint color_map_tex_id;
+  GLuint height_map_tex_id;
   uint32_t vao_num_vertices;
+  uint32_t map_vao_num_vertices;
 };
 

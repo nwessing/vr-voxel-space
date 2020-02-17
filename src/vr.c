@@ -1,7 +1,9 @@
+#ifdef INCLUDE_LIBOVR
 #include "vr.h"
 #include "stdint.h"
 #include "stdio.h"
 #include "assert.h"
+#include "glad/glad.h"
 
 void render_buffer_to_hmd(struct vr_data *vr, struct FrameBuffer *frame, struct OpenGLData *gl,
   struct ImageBuffer *color_map, struct ImageBuffer *height_map, struct Camera *camera, int frame_index) {
@@ -188,3 +190,4 @@ int32_t init_ovr(struct vr_data *vr) {
 
   return 0;
 }
+#endif

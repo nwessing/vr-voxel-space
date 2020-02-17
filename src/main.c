@@ -8,6 +8,8 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+#include "file.h"
+#include "shader.h"
 #include "assert.h"
 #include "stdbool.h"
 #include "stdio.h"
@@ -18,35 +20,6 @@
 
 #define SCREEN_WIDTH 800
 #define SCREEN_HEIGHT 640
-
-const char *VERTEX_SHADER_SOURCE = "\n\
-#version 330 core\n\
-layout (location = 0) in vec2 aPos;\n\
-\n\
-out vec2 TexCoords;\n\
-\n\
-void main()\n\
-{\n\
-    gl_Position = vec4(aPos.x, -aPos.y, 0.0, 1.0); \n\
-    TexCoords = vec2((aPos.x + 1.0) / 2.0, (aPos.y + 1.0) / 2.0);\n\
-}";
-
-const char* FRAGMENT_SHADER_SOURCE = "\n\
-#version 330 core\n\
-out vec4 FragColor;\n\
-\n\
-in vec2 TexCoords;\n\
-\n\
-uniform sampler2D screenTexture;\n\
-\n\
-void main()\n\
-{ \n\
-    vec4 texColor = texture(screenTexture, TexCoords);\n\
-    if (texColor.a < 0.5) {\n\
-      discard;\n\
-    }\n\
-    FragColor = texColor;\n\
-}";
 
 void wrap_coordinates(struct ImageBuffer *image, int *x, int *y) {
   while (*x < 0) {
@@ -178,6 +151,17 @@ void render(struct FrameBuffer *frame, struct ImageBuffer *color_map, struct Ima
   }
 }
 
+void render_real_3d(struct OpenGLData *gl) {
+  glClearColor(0.529f, 0.808f, 0.98f, 1.0f);
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+  glUseProgram(gl->shader_program);
+  glBindVertexArray(gl->map_vao);
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, gl->color_map_tex_id);
+  glDrawArrays(GL_TRIANGLES, 0, gl->map_vao_num_vertices);
+}
+
 void check_opengl_error(char *name) {
   GLenum gl_error = glGetError();
   if (gl_error) {
@@ -191,25 +175,6 @@ void render_buffer_to_gl(struct FrameBuffer *frame, struct OpenGLData *gl, int c
 
   glUseProgram(gl->shader_program);
   glBindVertexArray(gl->vao);
-
-  // int32_t clipped_buffer_width = (frame->width - (clip * 2));
-  // uint8_t *clipped_buffer = malloc(clipped_buffer_width * frame->height * 4);
-  // for (uint32_t i = 0; i < clipped_buffer_width * frame->height; i++) {
-  //   int32_t column = i % clipped_buffer_width;
-  //   int32_t row = i / clipped_buffer_width;
-
-  //   bool right = column >= clipped_buffer_width / 2;
-  //   int32_t source_row = row;
-  //   int32_t source_column = column;
-  //   if (right) {
-  //     source_column = column + (clip * 2);
-  //   }
-
-  //   int32_t offset = (source_column * 4) + (source_row * frame->pitch);
-  //   for (int32_t component = 0; component < 4; component++) {
-  //     clipped_buffer[(i * 4) + component] = frame->pixels[offset + component];
-  //   }
-  // }
 
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, gl->tex_id);
@@ -312,7 +277,7 @@ void render_buffer_to_hmd(struct vr_data *vr, struct FrameBuffer *frame, struct 
 }
 #endif
 
-void create_gl_objects(struct OpenGLData *gl) {
+void create_gl_objects(struct OpenGLData *gl, struct ImageBuffer *color_map, struct ImageBuffer *height_map) {
   float vertices[] = {
     -1.0, -1.0, 0.0,
     -1.0,  1.0, 0.0,
@@ -336,7 +301,15 @@ void create_gl_objects(struct OpenGLData *gl) {
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
 	glEnableVertexAttribArray(0);
 
-  gl->shader_program = create_shader(VERTEX_SHADER_SOURCE, FRAGMENT_SHADER_SOURCE);
+  char *vertex_shader_source = read_file("src/shaders/to_screen_space.vert");
+  assert(vertex_shader_source != NULL);
+
+  char *fragment_shader_source = read_file("src/shaders/blit.frag");
+  assert(fragment_shader_source != NULL);
+
+  gl->shader_program = create_shader(vertex_shader_source, fragment_shader_source);
+  free(vertex_shader_source);
+  free(fragment_shader_source);
   assert(gl->shader_program);
 
   glGenTextures(1, &gl->tex_id);
@@ -345,6 +318,46 @@ void create_gl_objects(struct OpenGLData *gl) {
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+  glGenTextures(1, &gl->color_map_tex_id);
+  glBindTexture(GL_TEXTURE_2D, gl->color_map_tex_id);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); 
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, color_map->width, color_map->height, 0, GL_RGB, GL_UNSIGNED_BYTE, color_map->pixels);
+  
+  glGenTextures(1, &gl->height_map_tex_id);
+  glBindTexture(GL_TEXTURE_2D, gl->height_map_tex_id);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); 
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, height_map->width, height_map->height, 0, GL_RED, GL_UNSIGNED_BYTE, height_map->pixels); 
+
+  /* const int32_t num_vertices_per_peak = 4; */
+  int32_t num_map_vertices = (height_map->width * height_map->height) / height_map->num_channels;
+  V3 *map_vertices = malloc(sizeof(V3) * num_map_vertices);
+  for (int32_t y = 0; y < height_map->height; y++) {
+    for (int32_t x = 0; x < height_map->width; x++) {
+      int32_t v_index = ((y * height_map->width) + x);
+      map_vertices[v_index][0] = x;
+      map_vertices[v_index][1] = y;
+      map_vertices[v_index][2] = get_image_grey(height_map, x, y);
+    }
+  }
+
+  glGenBuffers(1, &gl->map_vbo);
+
+	glBindBuffer(GL_ARRAY_BUFFER, gl->map_vbo);
+  gl->map_vao_num_vertices = num_map_vertices;
+	glBufferData(GL_ARRAY_BUFFER, num_map_vertices * sizeof(V3), map_vertices, GL_STATIC_DRAW);
+
+	glGenVertexArrays(1, &gl->map_vao);
+	glBindVertexArray(gl->map_vao);
+	glBindBuffer(GL_ARRAY_BUFFER, gl->map_vbo);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0); 
 }
 
 #ifdef INCLUDE_LIBOVR
@@ -471,7 +484,7 @@ int main(void) {
   }
 
   SDL_GLContext gl_context = SDL_GL_CreateContext(window);
-  char *sdl_error = SDL_GetError();
+  const char *sdl_error = SDL_GetError();
   if (*sdl_error != '\0') {
     printf("ERROR: %s\n", sdl_error);
     return 1;
@@ -523,7 +536,7 @@ int main(void) {
   printf("PITCH: %i\n", f_buffer.pitch);
 
   struct OpenGLData gl = {0};
-  create_gl_objects(&gl);
+  create_gl_objects(&gl, &color_map, &height_map);
 
   struct Camera camera = {
     .distance = 800,
@@ -644,32 +657,33 @@ int main(void) {
 #ifdef INCLUDE_LIBOVR
     render_buffer_to_hmd(&vr, &f_buffer, &gl, &color_map, &height_map, &camera, num_frames);
 #else
-    if (render_stereo) {
-      for (int eye = 0; eye < 2; ++eye) {
-        struct FrameBuffer eye_buffer;
-        eye_buffer.width = f_buffer.width / 2;
-        eye_buffer.height = f_buffer.height;
-        eye_buffer.pitch = f_buffer.pitch;
-        eye_buffer.y_buffer = &f_buffer.y_buffer[eye * (eye_buffer.width / 2)];
-        eye_buffer.clip_left_x = eye == 0 ? 0 : camera.clip;
-        eye_buffer.clip_right_x = eye_buffer.width - (eye == 0 ? camera.clip : 0);
-        eye_buffer.pixels = eye == 0 ? f_buffer.pixels : &f_buffer.pixels[(eye_buffer.width - camera.clip * 2) * 4];
+    /* if (render_stereo) { */
+    /*   for (int eye = 0; eye < 2; ++eye) { */
+    /*     struct FrameBuffer eye_buffer; */
+    /*     eye_buffer.width = f_buffer.width / 2; */
+    /*     eye_buffer.height = f_buffer.height; */
+    /*     eye_buffer.pitch = f_buffer.pitch; */
+    /*     eye_buffer.y_buffer = &f_buffer.y_buffer[eye * (eye_buffer.width / 2)]; */
+    /*     eye_buffer.clip_left_x = eye == 0 ? 0 : camera.clip; */
+    /*     eye_buffer.clip_right_x = eye_buffer.width - (eye == 0 ? camera.clip : 0); */
+    /*     eye_buffer.pixels = eye == 0 ? f_buffer.pixels : &f_buffer.pixels[(eye_buffer.width - camera.clip * 2) * 4]; */
 
-        int eye_mod = eye == 1 ? 1 : -1;
-        int eye_dist = 3;
-        struct Camera eye_cam = camera;
-        eye_cam.position_x += (int)(eye_mod * eye_dist * sin(eye_cam.rotation + (M_PI / 2)));
-        eye_cam.position_y += (int)(eye_mod * eye_dist * cos(eye_cam.rotation + (M_PI / 2)));
+    /*     int eye_mod = eye == 1 ? 1 : -1; */
+    /*     int eye_dist = 3; */
+    /*     struct Camera eye_cam = camera; */
+    /*     eye_cam.position_x += (int)(eye_mod * eye_dist * sin(eye_cam.rotation + (M_PI / 2))); */
+    /*     eye_cam.position_y += (int)(eye_mod * eye_dist * cos(eye_cam.rotation + (M_PI / 2))); */
 
-        render(&eye_buffer, &color_map, &height_map, &eye_cam);
-      }
-    } else {
-      render(&f_buffer, &color_map, &height_map, &camera);
-    }
+    /*     render(&eye_buffer, &color_map, &height_map, &eye_cam); */
+    /*   } */
+    /* } else { */
+    /*   render(&f_buffer, &color_map, &height_map, &camera); */
+    /* } */
 
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    /* glBindFramebuffer(GL_FRAMEBUFFER, 0); */
     glViewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
-    render_buffer_to_gl(&f_buffer, &gl, camera.clip);
+    render_real_3d(&gl);
+    /* render_buffer_to_gl(&f_buffer, &gl, camera.clip); */
     SDL_GL_SwapWindow(window);
 
 #endif
