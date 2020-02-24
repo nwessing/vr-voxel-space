@@ -155,11 +155,16 @@ void render_real_3d(struct OpenGLData *gl) {
   glClearColor(0.529f, 0.808f, 0.98f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-  glUseProgram(gl->shader_program);
+  glUseProgram(gl->poly_shader_program);
   glBindVertexArray(gl->map_vao);
+
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, gl->color_map_tex_id);
-  glDrawArrays(GL_TRIANGLES, 0, gl->map_vao_num_vertices);
+
+  /* glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gl->num_map_vbo_indices); */
+
+  /* glDrawElements(GL_TRIANGLES, 3 * 257, GL_UNSIGNED_INT, (void*)0); */
+  glDrawElements(GL_TRIANGLES, gl->num_map_vbo_indices, GL_UNSIGNED_INT, (void*)0);
 }
 
 void check_opengl_error(char *name) {
@@ -335,15 +340,46 @@ void create_gl_objects(struct OpenGLData *gl, struct ImageBuffer *color_map, str
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); 
   glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, height_map->width, height_map->height, 0, GL_RED, GL_UNSIGNED_BYTE, height_map->pixels); 
 
+  char *model_vertex_shader_source = read_file("src/shaders/model_view.vert");
+  assert(model_vertex_shader_source != NULL);
+
+  char *get_color_fragment_shader_source = read_file("src/shaders/get_color.frag");
+  assert(get_color_fragment_shader_source != NULL);
+
+  gl->poly_shader_program = create_shader(model_vertex_shader_source, get_color_fragment_shader_source);
+  free(model_vertex_shader_source);
+  free(get_color_fragment_shader_source);
+  assert(gl->poly_shader_program);    
   /* const int32_t num_vertices_per_peak = 4; */
-  int32_t num_map_vertices = (height_map->width * height_map->height) / height_map->num_channels;
+  int32_t num_map_vertices = (height_map->width * height_map->height);
   V3 *map_vertices = malloc(sizeof(V3) * num_map_vertices);
+
+  int32_t index_buffer_stride = height_map->width * 3;
+  int32_t indices_per_vert = 6;
+  int32_t num_indices = (num_map_vertices * indices_per_vert) - index_buffer_stride;
+  int32_t *index_buffer = malloc(sizeof(int32_t) * num_indices);
+
   for (int32_t y = 0; y < height_map->height; y++) {
     for (int32_t x = 0; x < height_map->width; x++) {
       int32_t v_index = ((y * height_map->width) + x);
       map_vertices[v_index][0] = x;
       map_vertices[v_index][1] = y;
-      map_vertices[v_index][2] = get_image_grey(height_map, x, y);
+      map_vertices[v_index][2] = ((int32_t) get_image_grey(height_map, x, y)) / 255.0f;
+      /* printf("color : %f\n", map_vertices[v_index][2]); */
+
+      if (x >= height_map->width - 1 || y >= height_map->height - 1) {
+        continue;
+      }
+
+      int32_t i_index = v_index * indices_per_vert;
+      
+      index_buffer[i_index] = v_index;
+      index_buffer[i_index + 1] = v_index + height_map->width;
+      index_buffer[i_index + 2] = v_index + 1;
+
+      index_buffer[i_index + 3] = v_index + height_map->width;
+      index_buffer[i_index + 4] = v_index + height_map->width + 1;
+      index_buffer[i_index + 5] = v_index + 1;
     }
   }
 
@@ -352,117 +388,21 @@ void create_gl_objects(struct OpenGLData *gl, struct ImageBuffer *color_map, str
 	glBindBuffer(GL_ARRAY_BUFFER, gl->map_vbo);
   gl->map_vao_num_vertices = num_map_vertices;
 	glBufferData(GL_ARRAY_BUFFER, num_map_vertices * sizeof(V3), map_vertices, GL_STATIC_DRAW);
+	free(map_vertices);
+
+	glGenBuffers(1, &gl->map_vbo_indices);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gl->map_vbo_indices);
+	gl->num_map_vbo_indices = num_indices;
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, num_indices * sizeof(int32_t), index_buffer, GL_STATIC_DRAW);
+	free(index_buffer);
 
 	glGenVertexArrays(1, &gl->map_vao);
 	glBindVertexArray(gl->map_vao);
 	glBindBuffer(GL_ARRAY_BUFFER, gl->map_vbo);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gl->map_vbo_indices);
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
 	glEnableVertexAttribArray(0); 
 }
-
-#ifdef INCLUDE_LIBOVR
-int init_ovr(struct vr_data *vr) {
-  ovrResult init_result = ovr_Initialize(NULL);
-  if (OVR_FAILURE(init_result)) {
-    ovrErrorInfo error_info;
-    ovr_GetLastErrorInfo(&error_info);
-    printf("ovr_Initialize failed: %s\n", error_info.ErrorString);
-    return 1;
-  }
-
-  ovrSession session;
-  ovrGraphicsLuid luid;
-  ovrResult create_result = ovr_Create(&session, &luid);
-  if(OVR_FAILURE(create_result)) {
-    ovrErrorInfo error_info;
-    ovr_GetLastErrorInfo(&error_info);
-    printf("ovr_Create failed: %s\n", error_info.ErrorString);
-    return 1;
-  }
-
-  ovrHmdDesc hmd_desc = ovr_GetHmdDesc(session);
-  printf("HMD Type: %i\n", hmd_desc.Type);
-  printf("HMD Manufacturer: %s\n", hmd_desc.Manufacturer);
-  ovrSizei resolution = hmd_desc.Resolution;
-  printf("HMD Resolution: %i x %i\n", resolution.w, resolution.h);
-
-  ovrFovPort left_fov = hmd_desc.DefaultEyeFov[ovrEye_Left];
-  ovrFovPort right_fov = hmd_desc.DefaultEyeFov[ovrEye_Right];
-  ovrSizei recommenedTex0Size = ovr_GetFovTextureSize(session, ovrEye_Left, left_fov , 1.0f);
-  ovrSizei recommenedTex1Size = ovr_GetFovTextureSize(session, ovrEye_Right, right_fov, 1.0f);
-  ovrSizei bufferSize;
-  bufferSize.w  = recommenedTex0Size.w + recommenedTex1Size.w;
-  bufferSize.h = max ( recommenedTex0Size.h, recommenedTex1Size.h );
-
-  ovrTextureSwapChainDesc chain_desc = {0};
-  chain_desc.Type = ovrTexture_2D;
-  chain_desc.ArraySize = 1;
-  chain_desc.Format = OVR_FORMAT_R8G8B8A8_UNORM_SRGB;
-  chain_desc.Width = bufferSize.w;
-  chain_desc.Height = bufferSize.h;
-  chain_desc.MipLevels = 1;
-  chain_desc.SampleCount = 1;
-  chain_desc.StaticImage = ovrFalse;
-
-  ovrTextureSwapChain chain;
-  ovrResult create_swap_chain_result = ovr_CreateTextureSwapChainGL(session, &chain_desc, &chain);
-  if (OVR_FAILURE(create_swap_chain_result)) {
-    ovrErrorInfo error_info;
-    ovr_GetLastErrorInfo(&error_info);
-    printf("ovr_CreateTextureSwapChainGL failed: %s\n", error_info.ErrorString);
-    return 1;
-  }
-
-    // Initialize VR structures, filling out description.
-  ovrEyeRenderDesc eyeRenderDesc[2];
-  ovrPosef      hmdToEyeViewPose[2];
-  // ovrHmdDesc hmdDesc = ovr_GetHmdDesc(session);
-  eyeRenderDesc[0] = ovr_GetRenderDesc(session, ovrEye_Left, hmd_desc.DefaultEyeFov[0]);
-  eyeRenderDesc[1] = ovr_GetRenderDesc(session, ovrEye_Right, hmd_desc.DefaultEyeFov[1]);
-  hmdToEyeViewPose[0] = eyeRenderDesc[0].HmdToEyePose;
-  hmdToEyeViewPose[1] = eyeRenderDesc[1].HmdToEyePose;
-
-  // Initialize our single full screen Fov layer.
-  ovrLayerEyeFov layer;
-  layer.Header.Type      = ovrLayerType_EyeFov;
-  layer.Header.Flags     = ovrLayerFlag_TextureOriginAtBottomLeft;
-  layer.ColorTexture[0]  = chain;
-  layer.ColorTexture[1]  = chain;
-  layer.Fov[0]           = eyeRenderDesc[0].Fov;
-  layer.Fov[1]           = eyeRenderDesc[1].Fov;
-  layer.Viewport[0]      = (ovrRecti) {
-    .Pos = { .x = 0, .y = 0 },
-    .Size = { .w = bufferSize.w / 2, .h = bufferSize.h }
-  };
-  layer.Viewport[1] = (ovrRecti) {
-    .Pos = { .x = bufferSize.w / 2, .y = 0 },
-    .Size = { .w = bufferSize.w / 2, .h = bufferSize.h }
-  };
-
-  // ovrResult create_swap_chain_result = ovr_GetTextureSwapChainLength(session, &chain, &chain_len);
-
-  // *tex_width = chain_desc.Width;
-  // *tex_height = chain_desc.Height;
-  // ovr_GetTextureSwapChainBufferGL(session, chain, 0, gl_tex_id);
-  // printf("GL TEXTURE ID: %i\n", *gl_tex_id);
-
-  // ovr_Destroy(session);
-  // ovr_Shutdown();
-
-  vr->session = session;
-  vr->eye_render_desc[0] = eyeRenderDesc[0];
-  vr->eye_render_desc[1] = eyeRenderDesc[1];
-  vr->hmd_to_eye_view_pose[0] = hmdToEyeViewPose[0];
-  vr->hmd_to_eye_view_pose[1] = hmdToEyeViewPose[1];
-  vr->layer = layer;
-  vr->session = session;
-  vr->hmd_desc = hmd_desc;
-  vr->chain_desc = chain_desc;
-  vr->swap_chain = chain;
-
-  return 0;
-}
-#endif
 
 int main(void) {
   if(SDL_Init(SDL_INIT_VIDEO) < 0 ) {

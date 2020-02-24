@@ -41,15 +41,18 @@ struct Camera {
 
 struct OpenGLData {
   GLuint frame_buffer;
+  GLuint poly_shader_program;
   GLuint shader_program;
   GLuint vbo;
   GLuint vao;
   GLuint map_vbo;
+  GLuint map_vbo_indices;
   GLuint map_vao;
   GLuint tex_id;
   GLuint color_map_tex_id;
   GLuint height_map_tex_id;
   uint32_t vao_num_vertices;
   uint32_t map_vao_num_vertices;
+  uint32_t num_map_vbo_indices;
 };
 
