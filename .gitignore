@@ -3,5 +3,6 @@
 *.pdb
 *.ilk
 *.dSYM
+.DS_Store
 .ccls-cache/
 vr-voxel-space

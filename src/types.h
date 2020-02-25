@@ -29,14 +29,16 @@ struct Color {
 };
 
 struct Camera {
-  int distance;
+  int32_t viewport_width;
+  int32_t viewport_height;
+  int32_t distance;
   float rotation;
-  int horizon;
-  int scale_height;
-  int position_x;
-  int position_y;
-  int position_height;
-  int clip;
+  int32_t horizon;
+  int32_t scale_height;
+  int32_t position_x;
+  int32_t position_y;
+  int32_t position_height;
+  int32_t clip;
 };
 
 struct OpenGLData {

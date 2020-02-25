@@ -1,5 +1,6 @@
 #include "glad/glad.h"
 #include <SDL2/SDL.h>
+#include <cglm/cglm.h>
 
 #ifdef INCLUDE_LIBOVR
 #include "vr.h"
@@ -151,19 +152,35 @@ void render(struct FrameBuffer *frame, struct ImageBuffer *color_map, struct Ima
   }
 }
 
-void render_real_3d(struct OpenGLData *gl) {
+void render_real_3d(struct OpenGLData *gl, struct Camera *camera) {
   glClearColor(0.529f, 0.808f, 0.98f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+  // NOTE: Flip the z-axis so that x increases to the camera's right
+  // matching the way the map appears in the image
+  vec3 position = {camera->position_x, camera->position_y, -camera->position_height};
+  vec3 center = {
+    position[0] - sin(camera->rotation), 
+    position[1] - cos(camera->rotation), 
+    position[2]
+  };
+
+  vec3 up = {0.0, 0.0, -1.0};
+
+  mat4 view_matrix = GLM_MAT4_IDENTITY;
+  glm_lookat(position, center, up, view_matrix);
+
+  mat4 projection_matrix = GLM_MAT4_IDENTITY;
+  glm_perspective(glm_rad(90), camera->viewport_width/ (float) camera->viewport_height, 0.01f, 1000.0f, projection_matrix);
+
   glUseProgram(gl->poly_shader_program);
+	glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "view"), 1, GL_FALSE, (float *) view_matrix);
+	glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "projection"), 1, GL_FALSE, (float *) projection_matrix);
   glBindVertexArray(gl->map_vao);
 
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, gl->color_map_tex_id);
 
-  /* glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gl->num_map_vbo_indices); */
-
-  /* glDrawElements(GL_TRIANGLES, 3 * 257, GL_UNSIGNED_INT, (void*)0); */
   glDrawElements(GL_TRIANGLES, gl->num_map_vbo_indices, GL_UNSIGNED_INT, (void*)0);
 }
 
@@ -365,7 +382,6 @@ void create_gl_objects(struct OpenGLData *gl, struct ImageBuffer *color_map, str
       map_vertices[v_index][0] = x;
       map_vertices[v_index][1] = y;
       map_vertices[v_index][2] = ((int32_t) get_image_grey(height_map, x, y)) / 255.0f;
-      /* printf("color : %f\n", map_vertices[v_index][2]); */
 
       if (x >= height_map->width - 1 || y >= height_map->height - 1) {
         continue;
@@ -446,8 +462,8 @@ int main(void) {
     //return 1;
   }
 
-
 	assert(glGetError() == GL_NO_ERROR);
+	glEnable(GL_DEPTH_TEST);
 
   struct ImageBuffer color_map;
   color_map.pixels = stbi_load("C1W.png", &color_map.width, &color_map.height, &color_map.num_channels, 0);
@@ -479,6 +495,8 @@ int main(void) {
   create_gl_objects(&gl, &color_map, &height_map);
 
   struct Camera camera = {
+    .viewport_width = SCREEN_WIDTH,
+    .viewport_height = SCREEN_HEIGHT,
     .distance = 800,
     .rotation = M_PI,
     .horizon = f_buffer.height / 2,
@@ -499,6 +517,7 @@ int main(void) {
   bool move_forward = false;
   bool move_backward = false;
   bool render_stereo = false;
+  bool do_raycasting = false;
   while (!quit)
   {
     unsigned int time = SDL_GetTicks();
@@ -555,9 +574,15 @@ int main(void) {
         camera.clip--;
         printf("clip %i\n", camera.clip);
       }
+
       if (e.key.keysym.sym == SDLK_v && e.key.repeat == 0 && e.type == SDL_KEYDOWN)
       {
         render_stereo = !render_stereo;
+      }
+
+      if (e.key.keysym.sym == SDLK_t && e.key.repeat == 0 && e.type == SDL_KEYDOWN)
+      {
+        do_raycasting = !do_raycasting;
       }
     }
 
@@ -597,33 +622,40 @@ int main(void) {
 #ifdef INCLUDE_LIBOVR
     render_buffer_to_hmd(&vr, &f_buffer, &gl, &color_map, &height_map, &camera, num_frames);
 #else
-    /* if (render_stereo) { */
-    /*   for (int eye = 0; eye < 2; ++eye) { */
-    /*     struct FrameBuffer eye_buffer; */
-    /*     eye_buffer.width = f_buffer.width / 2; */
-    /*     eye_buffer.height = f_buffer.height; */
-    /*     eye_buffer.pitch = f_buffer.pitch; */
-    /*     eye_buffer.y_buffer = &f_buffer.y_buffer[eye * (eye_buffer.width / 2)]; */
-    /*     eye_buffer.clip_left_x = eye == 0 ? 0 : camera.clip; */
-    /*     eye_buffer.clip_right_x = eye_buffer.width - (eye == 0 ? camera.clip : 0); */
-    /*     eye_buffer.pixels = eye == 0 ? f_buffer.pixels : &f_buffer.pixels[(eye_buffer.width - camera.clip * 2) * 4]; */
-
-    /*     int eye_mod = eye == 1 ? 1 : -1; */
-    /*     int eye_dist = 3; */
-    /*     struct Camera eye_cam = camera; */
-    /*     eye_cam.position_x += (int)(eye_mod * eye_dist * sin(eye_cam.rotation + (M_PI / 2))); */
-    /*     eye_cam.position_y += (int)(eye_mod * eye_dist * cos(eye_cam.rotation + (M_PI / 2))); */
-
-    /*     render(&eye_buffer, &color_map, &height_map, &eye_cam); */
-    /*   } */
-    /* } else { */
-    /*   render(&f_buffer, &color_map, &height_map, &camera); */
-    /* } */
+    
 
     /* glBindFramebuffer(GL_FRAMEBUFFER, 0); */
-    glViewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
-    render_real_3d(&gl);
-    /* render_buffer_to_gl(&f_buffer, &gl, camera.clip); */
+    SDL_GetWindowSize(window, &camera.viewport_width, &camera.viewport_height);
+    glViewport(0, 0, camera.viewport_width, camera.viewport_height);
+    if (do_raycasting) {
+      if (render_stereo) {
+        for (int eye = 0; eye < 2; ++eye) {
+          struct FrameBuffer eye_buffer;
+          eye_buffer.width = f_buffer.width / 2;
+          eye_buffer.height = f_buffer.height;
+          eye_buffer.pitch = f_buffer.pitch;
+          eye_buffer.y_buffer = &f_buffer.y_buffer[eye * (eye_buffer.width / 2)];
+          eye_buffer.clip_left_x = eye == 0 ? 0 : camera.clip;
+          eye_buffer.clip_right_x = eye_buffer.width - (eye == 0 ? camera.clip : 0);
+          eye_buffer.pixels = eye == 0 ? f_buffer.pixels : &f_buffer.pixels[(eye_buffer.width - camera.clip * 2) * 4];
+
+          int eye_mod = eye == 1 ? 1 : -1;
+          int eye_dist = 3;
+          struct Camera eye_cam = camera;
+          eye_cam.position_x += (int)(eye_mod * eye_dist * sin(eye_cam.rotation + (M_PI / 2)));
+          eye_cam.position_y += (int)(eye_mod * eye_dist * cos(eye_cam.rotation + (M_PI / 2)));
+
+          render(&eye_buffer, &color_map, &height_map, &eye_cam);
+        }
+      } else {
+        render(&f_buffer, &color_map, &height_map, &camera);
+      }
+
+      render_buffer_to_gl(&f_buffer, &gl, camera.clip);
+    } else {
+      render_real_3d(&gl, &camera);
+    }
+
     SDL_GL_SwapWindow(window);
 
 #endif
