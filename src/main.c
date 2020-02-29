@@ -181,7 +181,17 @@ void render_real_3d(struct OpenGLData *gl, struct Camera *camera) {
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, gl->color_map_tex_id);
 
-  glDrawElements(GL_TRIANGLES, gl->num_map_vbo_indices, GL_UNSIGNED_INT, (void*)0);
+  for (int32_t i = 0; i < 9; ++i) {
+    int32_t x = (i / 3) - 1;
+    int32_t y = (i % 3) - 1;
+
+
+    mat4 model = GLM_MAT4_IDENTITY;
+    vec4 translate = {x * 1024.0f, y * 1024.0f, 0.0};
+    glm_translate(model, translate);
+    glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "model"), 1, GL_FALSE, (float *) model);
+    glDrawElements(GL_TRIANGLES, gl->num_map_vbo_indices, GL_UNSIGNED_INT, (void*)0);
+  }
 }
 
 void check_opengl_error(char *name) {
@@ -343,8 +353,8 @@ void create_gl_objects(struct OpenGLData *gl, struct ImageBuffer *color_map, str
 
   glGenTextures(1, &gl->color_map_tex_id);
   glBindTexture(GL_TEXTURE_2D, gl->color_map_tex_id);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); 
   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, color_map->width, color_map->height, 0, GL_RGB, GL_UNSIGNED_BYTE, color_map->pixels);
@@ -367,14 +377,16 @@ void create_gl_objects(struct OpenGLData *gl, struct ImageBuffer *color_map, str
   free(model_vertex_shader_source);
   free(get_color_fragment_shader_source);
   assert(gl->poly_shader_program);    
-  /* const int32_t num_vertices_per_peak = 4; */
+
   int32_t num_map_vertices = (height_map->width * height_map->height);
   V3 *map_vertices = malloc(sizeof(V3) * num_map_vertices);
 
-  int32_t index_buffer_stride = height_map->width * 3;
   int32_t indices_per_vert = 6;
-  int32_t num_indices = (num_map_vertices * indices_per_vert) - index_buffer_stride;
-  int32_t *index_buffer = malloc(sizeof(int32_t) * num_indices);
+  int32_t num_indices = 0;
+  
+  // NOTE: allocating slightly more space than we need since we don't generate 
+  // indices for the final row and column
+  int32_t *index_buffer = malloc(sizeof(int32_t) * num_map_vertices * indices_per_vert);
 
   for (int32_t y = 0; y < height_map->height; y++) {
     for (int32_t x = 0; x < height_map->width; x++) {
@@ -396,8 +408,10 @@ void create_gl_objects(struct OpenGLData *gl, struct ImageBuffer *color_map, str
       index_buffer[i_index + 3] = v_index + height_map->width;
       index_buffer[i_index + 4] = v_index + height_map->width + 1;
       index_buffer[i_index + 5] = v_index + 1;
+      num_indices += indices_per_vert;
     }
   }
+  printf("# of vertices in terrain mesh: %i\n", num_indices);
 
   glGenBuffers(1, &gl->map_vbo);
 
@@ -508,9 +522,9 @@ int main(void) {
   };
 
   bool quit = false;
-  unsigned int time_last = SDL_GetTicks();
-  unsigned int num_frames = 0;
-  unsigned int time_begin = SDL_GetTicks();
+  uint32_t time_last = SDL_GetTicks();
+  uint32_t num_frames = 0;
+  uint32_t time_begin = SDL_GetTicks();
 
   bool turn_right = false;
   bool turn_left = false;
@@ -520,11 +534,14 @@ int main(void) {
   bool do_raycasting = false;
   while (!quit)
   {
-    unsigned int time = SDL_GetTicks();
-    float elapsed = (time - time_last) / 1000.0;
-    if ((time % 1000) < (time_last % 1000)) {
-      printf("FPS: %f\n", num_frames / ((SDL_GetTicks() - time_begin) / (float) 1000));
+    uint32_t time = SDL_GetTicks();
+    if (time - time_begin >= 1000) {
+      printf("%ix%i, FPS: %f\n", camera.viewport_width, camera.viewport_height, num_frames / ((time - time_begin) / (float) 1000));
+      num_frames = 0;
+      time_begin = time;
     }
+
+    float elapsed = (time - time_last) / 1000.0;
     time_last = time;
 
     SDL_Event e;
@@ -538,9 +555,16 @@ int main(void) {
       }
 
       if (e.key.keysym.sym == SDLK_f && e.key.repeat == 0 && e.type == SDL_KEYDOWN) {
+        SDL_DisplayMode mode;
+        if (SDL_GetDisplayMode(0, 0, &mode) == 0) {
+          printf("Display Mode: %ix%i\n", mode.w, mode.h);
+          SDL_SetWindowDisplayMode(window, &mode);
+        }
+
         unsigned int flags = SDL_GetWindowFlags(window);
         unsigned int new_mode = (flags & SDL_WINDOW_FULLSCREEN) == 0 ? SDL_WINDOW_FULLSCREEN : 0;
         SDL_SetWindowFullscreen(window, new_mode);
+
       }
 
       if (e.key.keysym.sym == SDLK_w)
@@ -623,7 +647,6 @@ int main(void) {
     render_buffer_to_hmd(&vr, &f_buffer, &gl, &color_map, &height_map, &camera, num_frames);
 #else
     
-
     /* glBindFramebuffer(GL_FRAMEBUFFER, 0); */
     SDL_GetWindowSize(window, &camera.viewport_width, &camera.viewport_height);
     glViewport(0, 0, camera.viewport_width, camera.viewport_height);
