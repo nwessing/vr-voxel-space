@@ -58,3 +58,7 @@ struct OpenGLData {
   uint32_t num_map_vbo_indices;
 };
 
+struct Game {
+  struct ImageBuffer color_map;
+  struct ImageBuffer height_map;
+};
