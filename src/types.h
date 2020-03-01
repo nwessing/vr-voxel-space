@@ -1,6 +1,7 @@
 #pragma once
 #include "stdint.h"
 #include "glad/glad.h"
+#include <cglm/cglm.h>
 
 #define GAME_SUCCESS 0
 #define GAME_ERROR 1
@@ -61,9 +62,16 @@ struct OpenGLData {
   uint32_t num_map_vbo_indices;
 };
 
+struct GameOptions {
+  bool do_raycasting;
+  bool render_stereo;
+};
+
 struct Game {
+  struct GameOptions options;
   struct Camera camera;
   struct ImageBuffer color_map;
   struct ImageBuffer height_map;
   struct FrameBuffer frame;
+  struct OpenGLData gl;
 };
