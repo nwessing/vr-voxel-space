@@ -67,11 +67,38 @@ struct GameOptions {
   bool render_stereo;
 };
 
+enum GameEventType {
+  KeyDown = 1,
+  KeyUp = 2
+};
+
+struct GameInputEvent {
+  int32_t key;  
+  int32_t type;
+};
+
+#define EVENT_QUEUE_CAPACITY 32
+struct EventQueue {
+  struct GameInputEvent events[EVENT_QUEUE_CAPACITY];
+  int32_t index_next;
+  int32_t length;
+  int32_t capacity;
+};
+
+struct GameController {
+  bool move_forward;
+  bool move_backward;
+  bool turn_left;
+  bool turn_right;
+};
+
 struct Game {
   struct GameOptions options;
+  struct GameController controller;
   struct Camera camera;
   struct ImageBuffer color_map;
   struct ImageBuffer height_map;
   struct FrameBuffer frame;
   struct OpenGLData gl;
+  struct EventQueue queue;
 };

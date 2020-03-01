@@ -9,7 +9,7 @@
 #include "raycasting.h"
 #include "string.h"
 
-void render_real_3d(struct OpenGLData *gl, struct Camera *camera) {
+static void render_real_3d(struct OpenGLData *gl, struct Camera *camera) {
   glClearColor(0.529f, 0.808f, 0.98f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -51,14 +51,14 @@ void render_real_3d(struct OpenGLData *gl, struct Camera *camera) {
   }
 }
 
-void check_opengl_error(char *name) {
+static void check_opengl_error(char *name) {
   GLenum gl_error = glGetError();
   if (gl_error) {
     printf("(%s) error: %i\n", name, gl_error);
   }
 }
 
-void render_buffer_to_gl(struct FrameBuffer *frame, struct OpenGLData *gl, int clip) {
+static void render_buffer_to_gl(struct FrameBuffer *frame, struct OpenGLData *gl, int clip) {
   glClearColor(0.529f, 0.808f, 0.98f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -112,7 +112,115 @@ void render_game(struct Game *game) {
       render_real_3d(&game->gl, &game->camera);
     }
 }
-                 
+
+int32_t add_event(struct Game *game, struct GameInputEvent event) {
+  struct EventQueue *queue = &game->queue;
+  if (queue->length >= queue->capacity - 1) {
+    printf("WARNING: Game event buffer full\n");
+    return GAME_ERROR;
+  }
+
+  int32_t new_index = (queue->index_next + queue->length) % queue->capacity;
+  queue->events[new_index] = event;
+  queue->length++;
+
+  return GAME_SUCCESS;
+}
+
+static bool pop_event(struct Game *game, struct GameInputEvent *output_event) {
+  struct EventQueue *queue = &game->queue;
+  if (queue->length == 0) {
+    return false;
+  }
+
+  struct GameInputEvent event = queue->events[queue->index_next];
+  output_event->key = event.key;  
+  output_event->type = event.type;  
+  queue->index_next = (queue->index_next + 1) % queue->capacity;
+  queue->length--;
+
+  return true;
+}
+
+void update_game(struct Game *game, float elapsed) {
+  struct GameController *controller = &game->controller;
+
+  struct GameInputEvent event;
+  while (pop_event(game, &event)) {
+    if (event.key == 'w')
+    {
+      controller->move_forward = event.type == KeyDown;
+    }
+
+    if (event.key == 's')
+    {
+      controller->move_backward = event.type == KeyDown;
+    }
+
+    if (event.key == 'a')
+    {
+      controller->turn_left = event.type == KeyDown;
+    }
+
+    if (event.key == 'd')
+    {
+      controller->turn_right = event.type == KeyDown;
+    }
+
+    if (event.key == 'e')
+    {
+      game->camera.clip++;
+      printf("clip %i\n", game->camera.clip);
+    }
+
+    if (event.key == 'r')
+    {
+      game->camera.clip--;
+      printf("clip %i\n", game->camera.clip);
+    }
+
+    if (event.key == 'v' && event.type == KeyDown)
+    {
+      game->options.render_stereo = !game->options.render_stereo;
+    }
+
+    if (event.key == 't' && event.type == KeyDown)
+    {
+      game->options.do_raycasting = !game->options.do_raycasting;
+    }
+  }
+
+  if (controller->move_forward || controller->move_backward) {
+    int modifier = controller->move_forward ? -1 : 1;
+    game->camera.position_y += modifier * cos(game->camera.rotation) * 200 * elapsed;
+    game->camera.position_x += modifier * sin(game->camera.rotation) * 200 * elapsed;
+  }
+
+  if (controller->turn_left || controller->turn_right) {
+    int modifier = controller->turn_left ? 1 : -1;
+    game->camera.rotation += modifier * M_PI * elapsed;
+  }
+
+  while (game->camera.rotation >= 2 * M_PI) {
+    game->camera.rotation -= 2 * M_PI;
+  }
+
+  while (game->camera.rotation < 0) {
+    game->camera.rotation += 2 * M_PI;
+  }
+
+  game->camera.position_x = game->camera.position_x % game->height_map.width;
+  game->camera.position_y = game->camera.position_y % game->height_map.height;
+
+  if (game->camera.position_x < 0) {
+    game->camera.position_x += game->height_map.width;
+  }
+
+  if (game->camera.position_y < 0) {
+    game->camera.position_y += game->height_map.height;
+  }
+}                 
+
 static void create_gl_objects(struct Game *game) {
   float vertices[] = {
     -1.0, -1.0, 0.0,
@@ -241,30 +349,9 @@ static void create_gl_objects(struct Game *game) {
 	glEnableVertexAttribArray(0); 
 }
 
-int32_t game_init(struct Game *game, int32_t width, int32_t height) {
-  if (load_assets(game) == GAME_ERROR) {
-    return GAME_ERROR;
-  }
 
-  create_frame_buffer(game, width, height);
 
-  game->camera.viewport_width = width;
-  game->camera.viewport_height = height;
-  game->camera.distance = 800;
-  game->camera.rotation = M_PI;
-  game->camera.horizon = game->frame.height / 2;
-  game->camera.scale_height = game->frame.height * 0.35;
-  game->camera.position_x = 436;
-  game->camera.position_y = 54;
-  game->camera.position_height = 50;
-  game->camera.clip = .06f * game->frame.width;
-
-  create_gl_objects(game);
-
-  return GAME_SUCCESS;
-}
-
-int32_t load_assets(struct Game *game) {
+static int32_t load_assets(struct Game *game) {
   /* struct ImageBuffer color_map; */
   game->color_map.pixels = stbi_load("C1W.png", &game->color_map.width, &game->color_map.height, &game->color_map.num_channels, 0);
   if (game->color_map.pixels == NULL) {
@@ -282,7 +369,7 @@ int32_t load_assets(struct Game *game) {
   return GAME_SUCCESS;
 }
 
-void create_frame_buffer(struct Game *game, int32_t width, int32_t height) {
+static void create_frame_buffer(struct Game *game, int32_t width, int32_t height) {
   game->frame.width = width;
   game->frame.height = height;
   // frame.width = 2528;
@@ -292,6 +379,33 @@ void create_frame_buffer(struct Game *game, int32_t width, int32_t height) {
   game->frame.y_buffer = malloc(game->frame.width * sizeof(int32_t));
   game->frame.pixels = malloc(game->frame.width * game->frame.height * sizeof(uint8_t) * 4);
   game->frame.pitch = game->frame.width * sizeof(uint32_t); 
+}
+
+int32_t game_init(struct Game *game, int32_t width, int32_t height) {
+  if (load_assets(game) == GAME_ERROR) {
+    return GAME_ERROR;
+  }
+
+  game->queue.capacity = EVENT_QUEUE_CAPACITY;
+  game->queue.index_next = 0;
+  game->queue.length = 0;
+
+  create_frame_buffer(game, width, height);
+
+  game->camera.viewport_width = width;
+  game->camera.viewport_height = height;
+  game->camera.distance = 800;
+  game->camera.rotation = M_PI;
+  game->camera.horizon = game->frame.height / 2;
+  game->camera.scale_height = game->frame.height * 0.35;
+  game->camera.position_x = 436;
+  game->camera.position_y = 54;
+  game->camera.position_height = 50;
+  game->camera.clip = .06f * game->frame.width;
+
+  create_gl_objects(game);
+
+  return GAME_SUCCESS;
 }
 
 void game_free(struct Game *game) {
