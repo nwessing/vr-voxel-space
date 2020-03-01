@@ -2,6 +2,9 @@
 #include "stdint.h"
 #include "glad/glad.h"
 
+#define GAME_SUCCESS 0
+#define GAME_ERROR 1
+
 struct FrameBuffer {
   int32_t width;
   int32_t height;
@@ -59,6 +62,8 @@ struct OpenGLData {
 };
 
 struct Game {
+  struct Camera camera;
   struct ImageBuffer color_map;
   struct ImageBuffer height_map;
+  struct FrameBuffer frame;
 };

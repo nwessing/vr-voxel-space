@@ -18,6 +18,7 @@
 #include "math.h"
 #include "shader.h"
 #include "types.h"
+#include "game.h"
 
 #define SCREEN_WIDTH 800
 #define SCREEN_HEIGHT 640
@@ -309,7 +310,7 @@ void render_buffer_to_hmd(struct vr_data *vr, struct FrameBuffer *frame, struct 
 }
 #endif
 
-void create_gl_objects(struct OpenGLData *gl, struct ImageBuffer *color_map, struct ImageBuffer *height_map) {
+void create_gl_objects(struct OpenGLData *gl, struct Game *game) {
   float vertices[] = {
     -1.0, -1.0, 0.0,
     -1.0,  1.0, 0.0,
@@ -357,7 +358,7 @@ void create_gl_objects(struct OpenGLData *gl, struct ImageBuffer *color_map, str
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); 
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, color_map->width, color_map->height, 0, GL_RGB, GL_UNSIGNED_BYTE, color_map->pixels);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, game->color_map.width, game->color_map.height, 0, GL_RGB, GL_UNSIGNED_BYTE, game->color_map.pixels);
   
   glGenTextures(1, &gl->height_map_tex_id);
   glBindTexture(GL_TEXTURE_2D, gl->height_map_tex_id);
@@ -365,7 +366,7 @@ void create_gl_objects(struct OpenGLData *gl, struct ImageBuffer *color_map, str
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); 
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, height_map->width, height_map->height, 0, GL_RED, GL_UNSIGNED_BYTE, height_map->pixels); 
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, game->height_map.width, game->height_map.height, 0, GL_RED, GL_UNSIGNED_BYTE, game->height_map.pixels); 
 
   char *model_vertex_shader_source = read_file("src/shaders/model_view.vert");
   assert(model_vertex_shader_source != NULL);
@@ -378,7 +379,7 @@ void create_gl_objects(struct OpenGLData *gl, struct ImageBuffer *color_map, str
   free(get_color_fragment_shader_source);
   assert(gl->poly_shader_program);    
 
-  int32_t num_map_vertices = (height_map->width * height_map->height);
+  int32_t num_map_vertices = (game->height_map.width * game->height_map.height);
   V3 *map_vertices = malloc(sizeof(V3) * num_map_vertices);
 
   int32_t indices_per_vert = 6;
@@ -388,25 +389,25 @@ void create_gl_objects(struct OpenGLData *gl, struct ImageBuffer *color_map, str
   // indices for the final row and column
   int32_t *index_buffer = malloc(sizeof(int32_t) * num_map_vertices * indices_per_vert);
 
-  for (int32_t y = 0; y < height_map->height; y++) {
-    for (int32_t x = 0; x < height_map->width; x++) {
-      int32_t v_index = ((y * height_map->width) + x);
+  for (int32_t y = 0; y < game->height_map.height; y++) {
+    for (int32_t x = 0; x < game->height_map.width; x++) {
+      int32_t v_index = ((y * game->height_map.width) + x);
       map_vertices[v_index][0] = x;
       map_vertices[v_index][1] = y;
-      map_vertices[v_index][2] = ((int32_t) get_image_grey(height_map, x, y)) / 255.0f;
+      map_vertices[v_index][2] = ((int32_t) get_image_grey(&game->height_map, x, y)) / 255.0f;
 
-      if (x >= height_map->width - 1 || y >= height_map->height - 1) {
+      if (x >= game->height_map.width - 1 || y >= game->height_map.height - 1) {
         continue;
       }
 
       int32_t i_index = v_index * indices_per_vert;
       
       index_buffer[i_index] = v_index;
-      index_buffer[i_index + 1] = v_index + height_map->width;
+      index_buffer[i_index + 1] = v_index + game->height_map.width;
       index_buffer[i_index + 2] = v_index + 1;
 
-      index_buffer[i_index + 3] = v_index + height_map->width;
-      index_buffer[i_index + 4] = v_index + height_map->width + 1;
+      index_buffer[i_index + 3] = v_index + game->height_map.width;
+      index_buffer[i_index + 4] = v_index + game->height_map.width + 1;
       index_buffer[i_index + 5] = v_index + 1;
       num_indices += indices_per_vert;
     }
@@ -479,47 +480,15 @@ int main(void) {
 	assert(glGetError() == GL_NO_ERROR);
 	glEnable(GL_DEPTH_TEST);
 
-  struct ImageBuffer color_map;
-  color_map.pixels = stbi_load("C1W.png", &color_map.width, &color_map.height, &color_map.num_channels, 0);
-  if (color_map.pixels == NULL) {
-    printf("Could not load color map");
+  struct Game game = {0};
+  if (game_init(&game, 1264, 704) == GAME_ERROR) {
     return 1;
   }
 
-  struct ImageBuffer height_map;
-  height_map.pixels = stbi_load("D1.png", &height_map.width, &height_map.height, &height_map.num_channels, 0);
-  if (height_map.pixels == NULL) {
-    printf("Could not load height map");
-    return 1;
-  }
-
-  struct FrameBuffer f_buffer;
-  f_buffer.width = 1264;
-  f_buffer.height = 704;
-  // f_buffer.width = 2528;
-  // f_buffer.height = 1408;
-  f_buffer.clip_left_x = 0,
-  f_buffer.clip_right_x = f_buffer.width,
-  f_buffer.y_buffer = malloc(f_buffer.width * sizeof(int32_t));
-  f_buffer.pixels = malloc(f_buffer.width * f_buffer.height * sizeof(uint8_t) * 4);
-  f_buffer.pitch = f_buffer.width * sizeof(uint32_t);
-  printf("PITCH: %i\n", f_buffer.pitch);
+  printf("PITCH: %i\n", game.frame.pitch);
 
   struct OpenGLData gl = {0};
-  create_gl_objects(&gl, &color_map, &height_map);
-
-  struct Camera camera = {
-    .viewport_width = SCREEN_WIDTH,
-    .viewport_height = SCREEN_HEIGHT,
-    .distance = 800,
-    .rotation = M_PI,
-    .horizon = f_buffer.height / 2,
-    .scale_height = f_buffer.height * 0.35,
-    .position_x = 436,
-    .position_y = 54,
-    .position_height = 50,
-    .clip = .06f * f_buffer.width //163
-  };
+  create_gl_objects(&gl, &game);
 
   bool quit = false;
   uint32_t time_last = SDL_GetTicks();
@@ -536,7 +505,7 @@ int main(void) {
   {
     uint32_t time = SDL_GetTicks();
     if (time - time_begin >= 1000) {
-      printf("%ix%i, FPS: %f\n", camera.viewport_width, camera.viewport_height, num_frames / ((time - time_begin) / (float) 1000));
+      printf("%ix%i, FPS: %f\n", game.camera.viewport_width, game.camera.viewport_height, num_frames / ((time - time_begin) / (float) 1000));
       num_frames = 0;
       time_begin = time;
     }
@@ -564,7 +533,6 @@ int main(void) {
         unsigned int flags = SDL_GetWindowFlags(window);
         unsigned int new_mode = (flags & SDL_WINDOW_FULLSCREEN) == 0 ? SDL_WINDOW_FULLSCREEN : 0;
         SDL_SetWindowFullscreen(window, new_mode);
-
       }
 
       if (e.key.keysym.sym == SDLK_w)
@@ -589,14 +557,14 @@ int main(void) {
 
       if (e.key.keysym.sym == SDLK_e)
       {
-        camera.clip++;
-        printf("clip %i\n", camera.clip);
+        game.camera.clip++;
+        printf("clip %i\n", game.camera.clip);
       }
 
       if (e.key.keysym.sym == SDLK_r)
       {
-        camera.clip--;
-        printf("clip %i\n", camera.clip);
+        game.camera.clip--;
+        printf("clip %i\n", game.camera.clip);
       }
 
       if (e.key.keysym.sym == SDLK_v && e.key.repeat == 0 && e.type == SDL_KEYDOWN)
@@ -612,71 +580,71 @@ int main(void) {
 
     if (move_forward || move_backward) {
       int modifier = move_forward ? -1 : 1;
-      camera.position_y += modifier * cos(camera.rotation) * 200 * elapsed;
-      camera.position_x += modifier * sin(camera.rotation) * 200 * elapsed;
+      game.camera.position_y += modifier * cos(game.camera.rotation) * 200 * elapsed;
+      game.camera.position_x += modifier * sin(game.camera.rotation) * 200 * elapsed;
     }
 
     if (turn_left || turn_right) {
       int modifier = turn_left ? 1 : -1;
-      camera.rotation += modifier * M_PI * elapsed;
+      game.camera.rotation += modifier * M_PI * elapsed;
     }
 
-    while (camera.rotation >= 2 * M_PI) {
-      camera.rotation -= 2 * M_PI;
+    while (game.camera.rotation >= 2 * M_PI) {
+      game.camera.rotation -= 2 * M_PI;
     }
 
-    while (camera.rotation < 0) {
-      camera.rotation += 2 * M_PI;
+    while (game.camera.rotation < 0) {
+      game.camera.rotation += 2 * M_PI;
     }
 
-    camera.position_x = camera.position_x % height_map.width;
-    camera.position_y = camera.position_y % height_map.height;
+    game.camera.position_x = game.camera.position_x % game.height_map.width;
+    game.camera.position_y = game.camera.position_y % game.height_map.height;
 
-    if (camera.position_x < 0) {
-      camera.position_x += height_map.width;
+    if (game.camera.position_x < 0) {
+      game.camera.position_x += game.height_map.width;
     }
 
-    if (camera.position_y < 0) {
-      camera.position_y += height_map.height;
+    if (game.camera.position_y < 0) {
+      game.camera.position_y += game.height_map.height;
     }
 
-    camera.position_height = get_image_grey(&height_map, camera.position_x, camera.position_y) + 50;
-    memset(f_buffer.pixels, 0, f_buffer.height * f_buffer.pitch);
+    game.camera.position_height = get_image_grey(&game.height_map, game.camera.position_x, game.camera.position_y) + 50;
+    memset(game.frame.pixels, 0, game.frame.height * game.frame.pitch);
 
 #ifdef INCLUDE_LIBOVR
-    render_buffer_to_hmd(&vr, &f_buffer, &gl, &color_map, &height_map, &camera, num_frames);
+    render_buffer_to_hmd(&vr, &game.frame, &gl, &color_map, &height_map, &camera, num_frames);
 #else
     
     /* glBindFramebuffer(GL_FRAMEBUFFER, 0); */
-    SDL_GetWindowSize(window, &camera.viewport_width, &camera.viewport_height);
-    glViewport(0, 0, camera.viewport_width, camera.viewport_height);
+    SDL_GetWindowSize(window, &game.camera.viewport_width, &game.camera.viewport_height);
+    glViewport(0, 0, game.camera.viewport_width, game.camera.viewport_height);
     if (do_raycasting) {
       if (render_stereo) {
         for (int eye = 0; eye < 2; ++eye) {
           struct FrameBuffer eye_buffer;
-          eye_buffer.width = f_buffer.width / 2;
-          eye_buffer.height = f_buffer.height;
-          eye_buffer.pitch = f_buffer.pitch;
-          eye_buffer.y_buffer = &f_buffer.y_buffer[eye * (eye_buffer.width / 2)];
-          eye_buffer.clip_left_x = eye == 0 ? 0 : camera.clip;
-          eye_buffer.clip_right_x = eye_buffer.width - (eye == 0 ? camera.clip : 0);
-          eye_buffer.pixels = eye == 0 ? f_buffer.pixels : &f_buffer.pixels[(eye_buffer.width - camera.clip * 2) * 4];
+          eye_buffer.width = game.frame.width / 2;
+          eye_buffer.height = game.frame.height;
+          eye_buffer.pitch = game.frame.pitch;
+          eye_buffer.y_buffer = &game.frame.y_buffer[eye * (eye_buffer.width / 2)];
+          eye_buffer.clip_left_x = eye == 0 ? 0 : game.camera.clip;
+          eye_buffer.clip_right_x = eye_buffer.width - (eye == 0 ? game.camera.clip : 0);
+          eye_buffer.pixels = eye == 0 ? game.frame.pixels : &game.frame.pixels[(eye_buffer.width - game.camera.clip * 2) * 4];
 
           int eye_mod = eye == 1 ? 1 : -1;
           int eye_dist = 3;
-          struct Camera eye_cam = camera;
+          struct Camera eye_cam = game.camera;
           eye_cam.position_x += (int)(eye_mod * eye_dist * sin(eye_cam.rotation + (M_PI / 2)));
           eye_cam.position_y += (int)(eye_mod * eye_dist * cos(eye_cam.rotation + (M_PI / 2)));
 
-          render(&eye_buffer, &color_map, &height_map, &eye_cam);
+          render(&eye_buffer, &game.color_map, &game.height_map, &eye_cam);
         }
       } else {
-        render(&f_buffer, &color_map, &height_map, &camera);
+        render(&game.frame, &game.color_map, &game.height_map, &game.camera);
       }
 
-      render_buffer_to_gl(&f_buffer, &gl, camera.clip);
+      render_buffer_to_gl(&game.frame, &gl, game.camera.clip);
     } else {
-      render_real_3d(&gl, &camera);
+      render_real_3d(&gl, &game.camera);
     }
 
     SDL_GL_SwapWindow(window);
@@ -686,13 +654,9 @@ int main(void) {
     num_frames++;
   }
 
-  free(f_buffer.y_buffer);
-  free(f_buffer.pixels);
-
   //Destroy window
   SDL_DestroyWindow(window);
-  stbi_image_free(color_map.pixels);
-  stbi_image_free(height_map.pixels);
+  game_free(&game);
 
   //Quit SDL subsystems
   SDL_Quit();
