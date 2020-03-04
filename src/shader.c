@@ -1,6 +1,7 @@
 #include "stdint.h"
 #include "stdio.h"
-#include "glad/glad.h"
+#include "platform.h"
+#include "game_gl.h"
 
 static int32_t check_shader_compile_errors(uint32_t shader)
 {
@@ -11,7 +12,7 @@ static int32_t check_shader_compile_errors(uint32_t shader)
     if (!success) {
         char info_log[512];
         glGetShaderInfoLog(shader, 512, NULL, info_log);
-        printf("ERROR::SHADER::COMPILATION_FAILURE\n%s\n", info_log);
+        error("ERROR::SHADER::COMPILATION_FAILURE\n%s\n", info_log);
     }
 
     return success;
@@ -25,7 +26,7 @@ static int32_t check_program_link_errors(uint32_t program)
     glGetProgramiv(program, GL_LINK_STATUS, &success);
     if (!success) {
         glGetProgramInfoLog(program, 512, NULL, info_log);
-        printf("ERROR:PROGRAM::LINK_FAILURE\n%s\n", info_log);
+        error("ERROR:PROGRAM::LINK_FAILURE\n%s\n", info_log);
     }
 
     return success;

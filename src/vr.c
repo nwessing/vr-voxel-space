@@ -3,7 +3,8 @@
 #include "stdint.h"
 #include "stdio.h"
 #include "assert.h"
-#include "glad/glad.h"
+#include "game_gl.h"
+#include "platform.h"
 
 void render_buffer_to_hmd(struct vr_data *vr, struct FrameBuffer *frame, struct OpenGLData *gl,
   struct ImageBuffer *color_map, struct ImageBuffer *height_map, struct Camera *camera, int frame_index) {
@@ -30,7 +31,7 @@ void render_buffer_to_hmd(struct vr_data *vr, struct FrameBuffer *frame, struct 
   if (OVR_FAILURE(wait_begin_frame_result)) {
     ovrErrorInfo error_info;
     ovr_GetLastErrorInfo(&error_info);
-    printf("ovr_WaitToBeginFrame failed: %s\n", error_info.ErrorString);
+    error("ovr_WaitToBeginFrame failed: %s\n", error_info.ErrorString);
     assert(false);
   }
 
@@ -38,7 +39,7 @@ void render_buffer_to_hmd(struct vr_data *vr, struct FrameBuffer *frame, struct 
   if (OVR_FAILURE(begin_frame_result)) {
     ovrErrorInfo error_info;
     ovr_GetLastErrorInfo(&error_info);
-    printf("ovr_BeginFrame failed: %s\n", error_info.ErrorString);
+    error("ovr_BeginFrame failed: %s\n", error_info.ErrorString);
     assert(false);
   }
 
@@ -75,7 +76,7 @@ void render_buffer_to_hmd(struct vr_data *vr, struct FrameBuffer *frame, struct 
   if (OVR_FAILURE(commit_result)) {
     ovrErrorInfo error_info;
     ovr_GetLastErrorInfo(&error_info);
-    printf("ovr_CommitTextureSwapChain failed: %s\n", error_info.ErrorString);
+    error("ovr_CommitTextureSwapChain failed: %s\n", error_info.ErrorString);
     assert(false);
   }
 
@@ -84,7 +85,7 @@ void render_buffer_to_hmd(struct vr_data *vr, struct FrameBuffer *frame, struct 
   if (OVR_FAILURE(end_frame_result)) {
     ovrErrorInfo error_info;
     ovr_GetLastErrorInfo(&error_info);
-    printf("ovr_EndFrame failed: %s\n", error_info.ErrorString);
+    error("ovr_EndFrame failed: %s\n", error_info.ErrorString);
     assert(false);
   }
 }
@@ -94,7 +95,7 @@ int32_t init_ovr(struct vr_data *vr) {
   if (OVR_FAILURE(init_result)) {
     ovrErrorInfo error_info;
     ovr_GetLastErrorInfo(&error_info);
-    printf("ovr_Initialize failed: %s\n", error_info.ErrorString);
+    error("ovr_Initialize failed: %s\n", error_info.ErrorString);
     return 1;
   }
 
@@ -104,15 +105,15 @@ int32_t init_ovr(struct vr_data *vr) {
   if(OVR_FAILURE(create_result)) {
     ovrErrorInfo error_info;
     ovr_GetLastErrorInfo(&error_info);
-    printf("ovr_Create failed: %s\n", error_info.ErrorString);
+    error("ovr_Create failed: %s\n", error_info.ErrorString);
     return 1;
   }
 
   ovrHmdDesc hmd_desc = ovr_GetHmdDesc(session);
-  printf("HMD Type: %i\n", hmd_desc.Type);
-  printf("HMD Manufacturer: %s\n", hmd_desc.Manufacturer);
+  info("HMD Type: %i\n", hmd_desc.Type);
+  info("HMD Manufacturer: %s\n", hmd_desc.Manufacturer);
   ovrSizei resolution = hmd_desc.Resolution;
-  printf("HMD Resolution: %i x %i\n", resolution.w, resolution.h);
+  info("HMD Resolution: %i x %i\n", resolution.w, resolution.h);
 
   ovrFovPort left_fov = hmd_desc.DefaultEyeFov[ovrEye_Left];
   ovrFovPort right_fov = hmd_desc.DefaultEyeFov[ovrEye_Right];
@@ -137,7 +138,7 @@ int32_t init_ovr(struct vr_data *vr) {
   if (OVR_FAILURE(create_swap_chain_result)) {
     ovrErrorInfo error_info;
     ovr_GetLastErrorInfo(&error_info);
-    printf("ovr_CreateTextureSwapChainGL failed: %s\n", error_info.ErrorString);
+    error("ovr_CreateTextureSwapChainGL failed: %s\n", error_info.ErrorString);
     return 1;
   }
 
@@ -172,7 +173,7 @@ int32_t init_ovr(struct vr_data *vr) {
   // *tex_width = chain_desc.Width;
   // *tex_height = chain_desc.Height;
   // ovr_GetTextureSwapChainBufferGL(session, chain, 0, gl_tex_id);
-  // printf("GL TEXTURE ID: %i\n", *gl_tex_id);
+  // info("GL TEXTURE ID: %i\n", *gl_tex_id);
 
   // ovr_Destroy(session);
   // ovr_Shutdown();

@@ -210,6 +210,7 @@ static void* android_app_entry(void* param) {
 
     android_app->config = AConfiguration_new();
     AConfiguration_fromAssetManager(android_app->config, android_app->activity->assetManager);
+    android_fopen_set_asset_manager(android_app->activity->assetManager);
 
     print_cur_config(android_app);
 

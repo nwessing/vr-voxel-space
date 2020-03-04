@@ -13,9 +13,15 @@ javac\
 dx --dex --output classes.dex .
 mkdir -p lib/arm64-v8a
 pushd lib/arm64-v8a > /dev/null
+# ls ../../../../src/
 aarch64-linux-android26-clang\
     -march=armv8-a\
     -shared\
+    -D_BSD_SOURCE\
+    -include ../../../src/main/cpp/android_fopen.h\
+    -I ../../../../src/\
+    -I /Users/nickwessing/headers/\
+    -I /usr/local/include/\
     -I $NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/\
     -I $OVR_HOME/VrApi/Include\
     -L $NDK_HOME/platforms/android-26/arch-arm64/usr/lib\
@@ -24,9 +30,23 @@ aarch64-linux-android26-clang\
     -llog\
     -lvrapi\
     -o libmain.so\
-   ../../../src/main/cpp/*.c
+    ../../../../src/file.c\
+    ../../../../src/game.c\
+    ../../../../src/image.c\
+    ../../../../src/raycasting.c\
+    ../../../../src/shader.c\
+    ../../../src/main/cpp/*.c
 cp $OVR_HOME/VrApi/Libs/Android/arm64-v8a/Debug/libvrapi.so .
 popd > /dev/null
+pushd ../../
+mkdir quest/build/assets
+mkdir quest/build/assets/src
+mkdir quest/build/assets/src/shaders
+cp *.png quest/build/assets/
+cd src/es_shaders
+cp * ../../quest/build/assets/src/shaders/
+popd > /dev/null
+pwd
 aapt\
 	package\
 	-F vr-voxel-space.apk\
@@ -36,6 +56,8 @@ aapt\
 aapt add vr-voxel-space.apk classes.dex
 aapt add vr-voxel-space.apk lib/arm64-v8a/libmain.so
 aapt add vr-voxel-space.apk lib/arm64-v8a/libvrapi.so
+aapt add vr-voxel-space.apk assets/*
+aapt add vr-voxel-space.apk assets/src/shaders/*
 apksigner\
 	sign\
 	-ks ~/.android/debug.keystore\

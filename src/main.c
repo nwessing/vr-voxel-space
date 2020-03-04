@@ -5,21 +5,36 @@
 #include "vr.h"
 #endif
 
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
-
 #include "assert.h"
 #include "stdbool.h"
 #include "stdio.h"
 #include "types.h"
 #include "game.h"
+#include "stdarg.h"
+#include "platform.h"
 
 #define INITIAL_SCREEN_WIDTH 800
 #define INITIAL_SCREEN_HEIGHT 640
 
+int error(const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  int result = vfprintf(stderr, format, args);
+  va_end(args);
+  return result;
+}
+
+int info(const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  int result = vprintf(format, args);
+  va_end(args);
+  return result;
+}
+
 int main(void) {
   if(SDL_Init(SDL_INIT_VIDEO) < 0 ) {
-      printf("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
+      error("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
       return 1;
   }
 
@@ -32,14 +47,14 @@ int main(void) {
 
   SDL_Window *window = SDL_CreateWindow("VR Voxel Space", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, INITIAL_SCREEN_WIDTH, INITIAL_SCREEN_HEIGHT, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
   if(window == NULL) {
-      printf("Window could not be created! SDL_Error: %s\n", SDL_GetError());
+      error("Window could not be created! SDL_Error: %s\n", SDL_GetError());
       return 1;
   }
 
   SDL_GLContext gl_context = SDL_GL_CreateContext(window);
   const char *sdl_error = SDL_GetError();
   if (*sdl_error != '\0') {
-    printf("ERROR: %s\n", sdl_error);
+    error("ERROR: %s\n", sdl_error);
     return 1;
   }
 
@@ -47,28 +62,28 @@ int main(void) {
 
 	if (!gladLoadGLLoader((GLADloadproc) SDL_GL_GetProcAddress))
 	{
-		printf("Failed to initialize GLAD\n");
+		error("Failed to initialize GLAD\n");
 		return 1;
 	}
 
-  printf("%s\n", glGetString(GL_VERSION));
+  error("%s\n", glGetString(GL_VERSION));
 
 	sdl_error = SDL_GetError();
   if (*sdl_error != '\0') {
-    printf("ERROR: %s\n", sdl_error);
+    error("ERROR: %s\n", sdl_error);
     //return 1;
   }
 
 	assert(glGetError() == GL_NO_ERROR);
 	glEnable(GL_DEPTH_TEST);
 
-  printf("Game data struct is %lu bytes\n", sizeof(struct Game));
+  info("Game data struct is %lu bytes\n", sizeof(struct Game));
   struct Game *game = calloc(1, sizeof(struct Game));
   if (game_init(game, 1264, 704) == GAME_ERROR) {
     return 1;
   }
 
-  printf("PITCH: %i\n", game->frame.pitch);
+  info("PITCH: %i\n", game->frame.pitch);
 
   bool quit = false;
   uint32_t time_last = SDL_GetTicks();
@@ -79,7 +94,7 @@ int main(void) {
   {
     uint32_t time = SDL_GetTicks();
     if (time - time_begin >= 1000) {
-      printf("%ix%i, FPS: %f\n", game->camera.viewport_width, game->camera.viewport_height, num_frames / ((time - time_begin) / (float) 1000));
+      info("%ix%i, FPS: %f\n", game->camera.viewport_width, game->camera.viewport_height, num_frames / ((time - time_begin) / (float) 1000));
       num_frames = 0;
       time_begin = time;
     }
@@ -100,7 +115,7 @@ int main(void) {
       if (e.key.keysym.sym == SDLK_f && e.key.repeat == 0 && e.type == SDL_KEYDOWN) {
         SDL_DisplayMode mode;
         if (SDL_GetDisplayMode(0, 0, &mode) == 0) {
-          printf("Display Mode: %ix%i\n", mode.w, mode.h);
+          info("Display Mode: %ix%i\n", mode.w, mode.h);
           SDL_SetWindowDisplayMode(window, &mode);
         }
 
@@ -148,6 +163,6 @@ int main(void) {
   //Quit SDL subsystems
   SDL_Quit();
 
-  printf("EXIT\n");
+  info("EXIT\n");
   return 0;
 }

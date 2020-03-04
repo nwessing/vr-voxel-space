@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include "platform.h"
 /* #include "file.h" */
 
 // Read a file into a char array, caller is responsible for 
@@ -9,7 +10,7 @@ char *read_file(const char *filename)
 	FILE *file = fopen(filename, "rb");
 	if (file == NULL)
 	{
-		printf("could not load file %s\n", filename);
+		error("could not load file %s\n", filename);
 		return NULL;
 	}
 

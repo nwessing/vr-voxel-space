@@ -1,6 +1,6 @@
 #pragma once
 #include "stdint.h"
-#include "glad/glad.h"
+#include "game_gl.h"
 #include <cglm/cglm.h>
 
 #define GAME_SUCCESS 0

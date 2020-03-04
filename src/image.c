@@ -1,6 +1,9 @@
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 #include "types.h"
 #include "assert.h"
 #include "stdio.h"
+#include "platform.h"
 
 void wrap_coordinates(struct ImageBuffer *image, int *x, int *y) {
   while (*x < 0) {
@@ -19,7 +22,7 @@ unsigned char get_image_grey(struct ImageBuffer *image, int x, int y) {
   wrap_coordinates(image, &x, &y);
 
   if (x < 0 || x >= image->width) {
-    printf("x = %i, image_w = %i\n", x, image->width);
+    error("x = %i, image_w = %i\n", x, image->width);
   }
   assert(x >=0 && x < image->width);
   assert(y >=0 && y < image->height);

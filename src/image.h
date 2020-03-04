@@ -1,4 +1,6 @@
 #pragma once
+
+#include "stb_image.h"
 #include "types.h"
 
 void wrap_coordinates(struct ImageBuffer *, int *x, int *y);

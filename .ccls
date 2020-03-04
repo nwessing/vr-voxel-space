@@ -1,7 +1,15 @@
 clang
 -I/Users/nickwessing/headers
+-I/Users/nickwessing/Library/Android/sdk/ndk/21.0.6113669/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/
+-I/Users/nickwessing/ovr_sdk_mobile_1.29.0/VrApi/Include
+-L/Users/nickwessing/Library/Android/sdk/ndk/21.0.6113669/platforms/android-26/arch-arm64/usr/lib
+-L/Users/nickwessing/ovr_sdk_mobile_1.29.0/VrApi/Libs/Android/arm64-v8a/Debug
+-landroid
+-llog
+-lvrapi
 -lSDL2 
 -frameworkOpenGL
+-DINCLUDE_GLAD
 -Wall 
 -Wextra 
 -pedantic 

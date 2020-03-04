@@ -1,13 +1,13 @@
 #include "types.h"
 #include "game.h"
 #include "math.h"
-#include "stb_image.h"
 #include "file.h"
 #include "assert.h"
 #include "shader.h"
 #include "image.h"
 #include "raycasting.h"
 #include "string.h"
+#include "platform.h"
 
 static void render_real_3d(struct OpenGLData *gl, struct Camera *camera) {
   glClearColor(0.529f, 0.808f, 0.98f, 1.0f);
@@ -54,7 +54,7 @@ static void render_real_3d(struct OpenGLData *gl, struct Camera *camera) {
 static void check_opengl_error(char *name) {
   GLenum gl_error = glGetError();
   if (gl_error) {
-    printf("(%s) error: %i\n", name, gl_error);
+    error("(%s) error: %i\n", name, gl_error);
   }
 }
 
@@ -116,7 +116,7 @@ void render_game(struct Game *game) {
 int32_t add_event(struct Game *game, struct GameInputEvent event) {
   struct EventQueue *queue = &game->queue;
   if (queue->length >= queue->capacity - 1) {
-    printf("WARNING: Game event buffer full\n");
+    error("WARNING: Game event buffer full\n");
     return GAME_ERROR;
   }
 
@@ -170,13 +170,13 @@ void update_game(struct Game *game, float elapsed) {
     if (event.key == 'e')
     {
       game->camera.clip++;
-      printf("clip %i\n", game->camera.clip);
+      info("clip %i\n", game->camera.clip);
     }
 
     if (event.key == 'r')
     {
       game->camera.clip--;
-      printf("clip %i\n", game->camera.clip);
+      info("clip %i\n", game->camera.clip);
     }
 
     if (event.key == 'v' && event.type == KeyDown)
@@ -326,7 +326,7 @@ static void create_gl_objects(struct Game *game) {
       num_indices += indices_per_vert;
     }
   }
-  printf("# of vertices in terrain mesh: %i\n", num_indices);
+  info("# of vertices in terrain mesh: %i\n", num_indices);
 
   glGenBuffers(1, &gl->map_vbo);
 
@@ -352,17 +352,17 @@ static void create_gl_objects(struct Game *game) {
 
 
 static int32_t load_assets(struct Game *game) {
-  /* struct ImageBuffer color_map; */
   game->color_map.pixels = stbi_load("C1W.png", &game->color_map.width, &game->color_map.height, &game->color_map.num_channels, 0);
   if (game->color_map.pixels == NULL) {
-    printf("Could not load color map");
+    error(stbi_failure_reason());
+    error("Could not load color map");
     return GAME_ERROR;
   }
 
-  /* struct ImageBuffer height_map; */
   game->height_map.pixels = stbi_load("D1.png", &game->height_map.width, &game->height_map.height, &game->height_map.num_channels, 0);
   if (game->height_map.pixels == NULL) {
-    printf("Could not load height map");
+    error(stbi_failure_reason());
+    error("Could not load height map");
     return GAME_ERROR;
   }            
 

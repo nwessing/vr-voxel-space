@@ -11,14 +11,28 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <stdarg.h>
+#include "game.h"
 
-#define error(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+static const char* TAG = "com.wessing.vr_voxel_space";
 
+int error(const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  int result = __android_log_print(ANDROID_LOG_ERROR, TAG, format, args);
+  va_end(args);
+  return result;  
+}
+
+int info(const char *format, ...) {
 #ifndef NDEBUG
-#define info(...) __android_log_print(ANDROID_LOG_VERBOSE, TAG, __VA_ARGS__)
+  va_list args;
+  va_start(args, format);
+  int result = __android_log_print(ANDROID_LOG_VERBOSE, TAG, format, args);
+  va_end(args);
+  return result;   
 #endif // NDEBUG
-
-static const char* TAG = "hello_quest";
+}
 
 static const char*
 egl_get_error_string(EGLint error)
@@ -252,16 +266,14 @@ struct framebuffer
 };
 
 static void
-framebuffer_create(struct framebuffer* framebuffer, GLsizei width,
-                   GLsizei height)
+framebuffer_create(struct framebuffer* framebuffer, GLsizei width, GLsizei height)
 {
     framebuffer->swap_chain_index = 0;
     framebuffer->width = width;
     framebuffer->height = height;
 
     info("create color texture swap chain");
-    framebuffer->color_texture_swap_chain = vrapi_CreateTextureSwapChain3(
-        VRAPI_TEXTURE_TYPE_2D, GL_RGBA8, width, height, 1, 3);
+    framebuffer->color_texture_swap_chain = vrapi_CreateTextureSwapChain3(VRAPI_TEXTURE_TYPE_2D, GL_RGBA8, width, height, 1, 3);
     if (framebuffer->color_texture_swap_chain == NULL) {
         error("can't create color texture swap chain");
         exit(EXIT_FAILURE);
@@ -271,16 +283,14 @@ framebuffer_create(struct framebuffer* framebuffer, GLsizei width,
         vrapi_GetTextureSwapChainLength(framebuffer->color_texture_swap_chain);
 
     info("allocate depth renderbuffers");
-    framebuffer->depth_renderbuffers =
-        malloc(framebuffer->swap_chain_length * sizeof(GLuint));
+    framebuffer->depth_renderbuffers = malloc(framebuffer->swap_chain_length * sizeof(GLuint));
     if (framebuffer->depth_renderbuffers == NULL) {
         error("can't allocate depth renderbuffers");
         exit(EXIT_FAILURE);
     }
 
     info("allocate framebuffers");
-    framebuffer->framebuffers =
-        malloc(framebuffer->swap_chain_length * sizeof(GLuint));
+    framebuffer->framebuffers = malloc(framebuffer->swap_chain_length * sizeof(GLuint));
     if (framebuffer->framebuffers == NULL) {
         error("can't allocate framebuffers");
         exit(EXIT_FAILURE);
@@ -292,8 +302,7 @@ framebuffer_create(struct framebuffer* framebuffer, GLsizei width,
                       framebuffer->framebuffers);
     for (int i = 0; i < framebuffer->swap_chain_length; ++i) {
         info("create color texture %d", i);
-        GLuint color_texture = vrapi_GetTextureSwapChainHandle(
-            framebuffer->color_texture_swap_chain, i);
+        GLuint color_texture = vrapi_GetTextureSwapChainHandle(framebuffer->color_texture_swap_chain, i);
         glBindTexture(GL_TEXTURE_2D, color_texture);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -302,23 +311,18 @@ framebuffer_create(struct framebuffer* framebuffer, GLsizei width,
         glBindTexture(GL_TEXTURE_2D, 0);
 
         info("create depth renderbuffer %d", i);
-        glBindRenderbuffer(GL_RENDERBUFFER,
-                           framebuffer->depth_renderbuffers[i]);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width,
-                              height);
+        glBindRenderbuffer(GL_RENDERBUFFER, framebuffer->depth_renderbuffers[i]);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
         glBindRenderbuffer(GL_RENDERBUFFER, 0);
 
         info("create framebuffer %d", i);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer->framebuffers[i]);
-        glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                               GL_TEXTURE_2D, color_texture, 0);
-        glFramebufferRenderbuffer(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-                                  GL_RENDERBUFFER,
-                                  framebuffer->depth_renderbuffers[i]);
+        glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color_texture, 0);
+        glFramebufferRenderbuffer(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, framebuffer->depth_renderbuffers[i]);
+
         GLenum status = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER);
         if (status != GL_FRAMEBUFFER_COMPLETE) {
-            error("can't create framebuffer %d: %s", i,
-                  gl_get_framebuffer_status_string(status));
+            error("can't create framebuffer %d: %s", i, gl_get_framebuffer_status_string(status));
             exit(EXIT_FAILURE);
         }
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
@@ -567,7 +571,7 @@ renderer_destroy(struct renderer* renderer)
 }
 
 static ovrLayerProjection2
-renderer_render_frame(struct renderer* renderer, ovrTracking2* tracking)
+renderer_render_frame(struct Game *game, struct renderer* renderer, ovrTracking2* tracking)
 {
     ovrMatrix4f model_matrix = ovrMatrix4f_CreateTranslation(0.0, 0.0, -1.0);
     model_matrix = ovrMatrix4f_Transpose(&model_matrix);
@@ -595,38 +599,39 @@ renderer_render_frame(struct renderer* renderer, ovrTracking2* tracking)
             GL_DRAW_FRAMEBUFFER,
             framebuffer->framebuffers[framebuffer->swap_chain_index]);
 
-        glEnable(GL_CULL_FACE);
-        glEnable(GL_DEPTH_TEST);
-        glEnable(GL_SCISSOR_TEST);
-        glViewport(0, 0, framebuffer->width, framebuffer->height);
-        glScissor(0, 0, framebuffer->width, framebuffer->height);
-        glClearColor(0.0, 0.0, 0.0, 0.0);
+        render_game(game);
+        /* glEnable(GL_CULL_FACE); */
+        /* glEnable(GL_DEPTH_TEST); */
+        /* glEnable(GL_SCISSOR_TEST); */
+        /* glViewport(0, 0, framebuffer->width, framebuffer->height); */
+        /* glScissor(0, 0, framebuffer->width, framebuffer->height); */
+        /* glClearColor(0.0, 0.0, 0.0, 0.0); */
 
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        glUseProgram(renderer->program.program);
-        glUniformMatrix4fv(
-            renderer->program.uniform_locations[UNIFORM_MODEL_MATRIX], 1,
-            GL_FALSE, (const GLfloat*)&model_matrix);
-        glUniformMatrix4fv(
-            renderer->program.uniform_locations[UNIFORM_VIEW_MATRIX], 1,
-            GL_FALSE, (const GLfloat*)&view_matrix);
-        glUniformMatrix4fv(
-            renderer->program.uniform_locations[UNIFORM_PROJECTION_MATRIX], 1,
-            GL_FALSE, (const GLfloat*)&projection_matrix);
-        glBindVertexArray(renderer->geometry.vertex_array);
-        glDrawElements(GL_TRIANGLES, NUM_INDICES, GL_UNSIGNED_SHORT, NULL);
-        glBindVertexArray(0);
-        glUseProgram(0);
+        /* glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); */
+        /* glUseProgram(renderer->program.program); */
+        /* glUniformMatrix4fv( */
+        /*     renderer->program.uniform_locations[UNIFORM_MODEL_MATRIX], 1, */
+        /*     GL_FALSE, (const GLfloat*)&model_matrix); */
+        /* glUniformMatrix4fv( */
+        /*     renderer->program.uniform_locations[UNIFORM_VIEW_MATRIX], 1, */
+        /*     GL_FALSE, (const GLfloat*)&view_matrix); */
+        /* glUniformMatrix4fv( */
+        /*     renderer->program.uniform_locations[UNIFORM_PROJECTION_MATRIX], 1, */
+        /*     GL_FALSE, (const GLfloat*)&projection_matrix); */
+        /* glBindVertexArray(renderer->geometry.vertex_array); */
+        /* glDrawElements(GL_TRIANGLES, NUM_INDICES, GL_UNSIGNED_SHORT, NULL); */
+        /* glBindVertexArray(0); */
+        /* glUseProgram(0); */
 
-        glClearColor(0.0, 0.0, 0.0, 1.0);
-        glScissor(0, 0, 1, framebuffer->height);
-        glClear(GL_COLOR_BUFFER_BIT);
-        glScissor(framebuffer->width - 1, 0, 1, framebuffer->height);
-        glClear(GL_COLOR_BUFFER_BIT);
-        glScissor(0, 0, framebuffer->width, 1);
-        glClear(GL_COLOR_BUFFER_BIT);
-        glScissor(0, framebuffer->height - 1, framebuffer->width, 1);
-        glClear(GL_COLOR_BUFFER_BIT);
+        /* glClearColor(0.0, 0.0, 0.0, 1.0); */
+        /* glScissor(0, 0, 1, framebuffer->height); */
+        /* glClear(GL_COLOR_BUFFER_BIT); */
+        /* glScissor(framebuffer->width - 1, 0, 1, framebuffer->height); */
+        /* glClear(GL_COLOR_BUFFER_BIT); */
+        /* glScissor(0, 0, framebuffer->width, 1); */
+        /* glClear(GL_COLOR_BUFFER_BIT); */
+        /* glScissor(0, framebuffer->height - 1, framebuffer->width, 1); */
+        /* glClear(GL_COLOR_BUFFER_BIT); */
 
         static const GLenum ATTACHMENTS[] = { GL_DEPTH_ATTACHMENT };
         static const GLsizei NUM_ATTACHMENTS =
@@ -759,11 +764,11 @@ app_create(struct app* app, ovrJava* java)
 {
     app->java = java;
     egl_create(&app->egl);
-    renderer_create(&app->renderer,
-                    vrapi_GetSystemPropertyInt(
-                        java, VRAPI_SYS_PROP_SUGGESTED_EYE_TEXTURE_WIDTH),
-                    vrapi_GetSystemPropertyInt(
-                        java, VRAPI_SYS_PROP_SUGGESTED_EYE_TEXTURE_HEIGHT));
+
+    GLsizei tex_width = vrapi_GetSystemPropertyInt(java, VRAPI_SYS_PROP_SUGGESTED_EYE_TEXTURE_WIDTH);
+    GLsizei tex_height = vrapi_GetSystemPropertyInt(java, VRAPI_SYS_PROP_SUGGESTED_EYE_TEXTURE_HEIGHT);
+    renderer_create(&app->renderer, tex_width, tex_height);
+
     app->resumed = false;
     app->window = NULL;
     app->ovr = NULL;
@@ -784,6 +789,7 @@ android_main(struct android_app* android_app)
     ANativeActivity_setWindowFlags(android_app->activity,
                                    AWINDOW_FLAG_KEEP_SCREEN_ON, 0);
 
+    info("starting com.wessing.vr-voxel-space");
     info("attach current thread");
     ovrJava java;
     java.Vm = android_app->activity->vm;
@@ -800,15 +806,21 @@ android_main(struct android_app* android_app)
     struct app app;
     app_create(&app, &java);
 
+    struct Game *game = calloc(1, sizeof(struct Game));
+    if (game_init(game, 800, 600) == GAME_ERROR) {
+      error("com.wessing.vr_voxel_space couldn't initialize game");   
+      exit(EXIT_FAILURE);
+    }
+    info("com.wessing.vr_voxel_space Game initialized!");   
+    
+
     android_app->userData = &app;
     android_app->onAppCmd = app_on_cmd;
     while (!android_app->destroyRequested) {
         for (;;) {
             int events = 0;
             struct android_poll_source* source = NULL;
-            if (ALooper_pollAll(
-                    android_app->destroyRequested || app.ovr != NULL ? 0 : -1,
-                    NULL, &events, (void**)&source) < 0) {
+            if (ALooper_pollAll(android_app->destroyRequested || app.ovr != NULL ? 0 : -1, NULL, &events, (void**)&source) < 0) {
                 break;
             }
             if (source != NULL) {
@@ -824,12 +836,10 @@ android_main(struct android_app* android_app)
             continue;
         }
         app.frame_index++;
-        const double display_time =
-            vrapi_GetPredictedDisplayTime(app.ovr, app.frame_index);
-        ovrTracking2 tracking =
-            vrapi_GetPredictedTracking2(app.ovr, display_time);
-        const ovrLayerProjection2 layer =
-            renderer_render_frame(&app.renderer, &tracking);
+        const double display_time = vrapi_GetPredictedDisplayTime(app.ovr, app.frame_index);
+        ovrTracking2 tracking = vrapi_GetPredictedTracking2(app.ovr, display_time);
+        const ovrLayerProjection2 layer = renderer_render_frame(game, &app.renderer, &tracking);
+
         const ovrLayerHeader2* layers[] = { &layer.Header };
         ovrSubmitFrameDescription2 frame;
         frame.Flags = 0;
