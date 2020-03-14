@@ -63,8 +63,8 @@ void render_buffer_to_hmd(struct vr_data *vr, struct FrameBuffer *frame, struct 
     int32_t eye_mod = eye == 1 ? 1 : -1;
     int32_t eye_dist = 3;
     struct Camera eye_cam = *camera;
-    eye_cam.position_x += (int32_t)(eye_mod * eye_dist * sin(eye_cam.rotation + (M_PI / 2)));
-    eye_cam.position_y += (int32_t)(eye_mod * eye_dist * cos(eye_cam.rotation + (M_PI / 2)));
+    eye_cam.position_x += (int32_t)(eye_mod * eye_dist * sin(eye_cam.pitch + (M_PI / 2)));
+    eye_cam.position_y += (int32_t)(eye_mod * eye_dist * cos(eye_cam.pitch + (M_PI / 2)));
 
     render(&eye_buffer, color_map, height_map, &eye_cam);
   }

@@ -13,13 +13,14 @@
 #include <unistd.h>
 #include <stdarg.h>
 #include "game.h"
+#include "cglm/cglm.h"
 
 static const char* TAG = "com.wessing.vr_voxel_space";
 
 int error(const char *format, ...) {
   va_list args;
   va_start(args, format);
-  int result = __android_log_print(ANDROID_LOG_ERROR, TAG, format, args);
+  int result = __android_log_vprint(ANDROID_LOG_ERROR, TAG, format, args);
   va_end(args);
   return result;  
 }
@@ -28,7 +29,7 @@ int info(const char *format, ...) {
 #ifndef NDEBUG
   va_list args;
   va_start(args, format);
-  int result = __android_log_print(ANDROID_LOG_VERBOSE, TAG, format, args);
+  int result = __android_log_vprint(ANDROID_LOG_VERBOSE, TAG, format, args);
   va_end(args);
   return result;   
 #endif // NDEBUG
@@ -240,17 +241,17 @@ egl_create(struct egl* egl)
 static void
 egl_destroy(struct egl* egl)
 {
-    info("make EGL context no longer current");
+    /* info("make EGL context no longer current"); */
     eglMakeCurrent(egl->display, EGL_NO_SURFACE, EGL_NO_SURFACE,
                    EGL_NO_CONTEXT);
 
-    info("destroy EGL surface");
+    /* info("destroy EGL surface"); */
     eglDestroySurface(egl->display, egl->surface);
 
-    info("destroy EGL context");
+    /* info("destroy EGL context"); */
     eglDestroyContext(egl->display, egl->context);
 
-    info("terminate EGL display");
+    /* info("terminate EGL display"); */
     eglTerminate(egl->display);
 }
 
@@ -272,7 +273,7 @@ framebuffer_create(struct framebuffer* framebuffer, GLsizei width, GLsizei heigh
     framebuffer->width = width;
     framebuffer->height = height;
 
-    info("create color texture swap chain");
+    /* info("create color texture swap chain"); */
     framebuffer->color_texture_swap_chain = vrapi_CreateTextureSwapChain3(VRAPI_TEXTURE_TYPE_2D, GL_RGBA8, width, height, 1, 3);
     if (framebuffer->color_texture_swap_chain == NULL) {
         error("can't create color texture swap chain");
@@ -282,14 +283,14 @@ framebuffer_create(struct framebuffer* framebuffer, GLsizei width, GLsizei heigh
     framebuffer->swap_chain_length =
         vrapi_GetTextureSwapChainLength(framebuffer->color_texture_swap_chain);
 
-    info("allocate depth renderbuffers");
+    /* info("allocate depth renderbuffers"); */
     framebuffer->depth_renderbuffers = malloc(framebuffer->swap_chain_length * sizeof(GLuint));
     if (framebuffer->depth_renderbuffers == NULL) {
         error("can't allocate depth renderbuffers");
         exit(EXIT_FAILURE);
     }
 
-    info("allocate framebuffers");
+    /* info("allocate framebuffers"); */
     framebuffer->framebuffers = malloc(framebuffer->swap_chain_length * sizeof(GLuint));
     if (framebuffer->framebuffers == NULL) {
         error("can't allocate framebuffers");
@@ -301,7 +302,7 @@ framebuffer_create(struct framebuffer* framebuffer, GLsizei width, GLsizei heigh
     glGenFramebuffers(framebuffer->swap_chain_length,
                       framebuffer->framebuffers);
     for (int i = 0; i < framebuffer->swap_chain_length; ++i) {
-        info("create color texture %d", i);
+        /* info("create color texture %d", i); */
         GLuint color_texture = vrapi_GetTextureSwapChainHandle(framebuffer->color_texture_swap_chain, i);
         glBindTexture(GL_TEXTURE_2D, color_texture);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -310,12 +311,12 @@ framebuffer_create(struct framebuffer* framebuffer, GLsizei width, GLsizei heigh
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glBindTexture(GL_TEXTURE_2D, 0);
 
-        info("create depth renderbuffer %d", i);
+        /* info("create depth renderbuffer %d", i); */
         glBindRenderbuffer(GL_RENDERBUFFER, framebuffer->depth_renderbuffers[i]);
         glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
         glBindRenderbuffer(GL_RENDERBUFFER, 0);
 
-        info("create framebuffer %d", i);
+        /* info("create framebuffer %d", i); */
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer->framebuffers[i]);
         glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color_texture, 0);
         glFramebufferRenderbuffer(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, framebuffer->depth_renderbuffers[i]);
@@ -332,222 +333,27 @@ framebuffer_create(struct framebuffer* framebuffer, GLsizei width, GLsizei heigh
 static void
 framebuffer_destroy(struct framebuffer* framebuffer)
 {
-    info("destroy framebuffers");
+    /* info("destroy framebuffers"); */
     glDeleteFramebuffers(framebuffer->swap_chain_length,
                          framebuffer->framebuffers);
 
-    info("destroy depth renderbuffers");
+    /* info("destroy depth renderbuffers"); */
     glDeleteRenderbuffers(framebuffer->swap_chain_length,
                           framebuffer->depth_renderbuffers);
 
-    info("free framebuffers");
+    /* info("free framebuffers"); */
     free(framebuffer->framebuffers);
 
-    info("free depth renderbuffers");
+    /* info("free depth renderbuffers"); */
     free(framebuffer->depth_renderbuffers);
 
-    info("destroy color texture swap chain");
+    /* info("destroy color texture swap chain"); */
     vrapi_DestroyTextureSwapChain(framebuffer->color_texture_swap_chain);
-}
-
-enum attrib
-{
-    ATTRIB_BEGIN,
-    ATTRIB_POSITION = ATTRIB_BEGIN,
-    ATTRIB_COLOR,
-    ATTRIB_END,
-};
-
-enum uniform
-{
-    UNIFORM_BEGIN,
-    UNIFORM_MODEL_MATRIX = UNIFORM_BEGIN,
-    UNIFORM_VIEW_MATRIX,
-    UNIFORM_PROJECTION_MATRIX,
-    UNIFORM_END,
-};
-
-struct program
-{
-    GLuint program;
-    GLint uniform_locations[UNIFORM_END];
-};
-
-static const char* ATTRIB_NAMES[ATTRIB_END] = {
-    "aPosition", "aColor",
-};
-
-static const char* UNIFORM_NAMES[UNIFORM_END] = {
-    "uModelMatrix", "uViewMatrix", "uProjectionMatrix",
-};
-
-static const char VERTEX_SHADER[] =
-    "#version 300 es\n"
-    "\n"
-    "in vec3 aPosition;\n"
-    "in vec3 aColor;\n"
-    "uniform mat4 uModelMatrix;\n"
-    "uniform mat4 uViewMatrix;\n"
-    "uniform mat4 uProjectionMatrix;\n"
-    "\n"
-    "out vec3 vColor;\n"
-    "void main()\n"
-    "{\n"
-    "	gl_Position = uProjectionMatrix * ( uViewMatrix * ( uModelMatrix * vec4( "
-    "aPosition * 0.1, 1.0 ) ) );\n"
-    "	vColor = aColor;\n"
-    "}\n";
-
-static const char FRAGMENT_SHADER[] = "#version 300 es\n"
-                                      "\n"
-                                      "in lowp vec3 vColor;\n"
-                                      "out lowp vec4 outColor;\n"
-                                      "void main()\n"
-                                      "{\n"
-                                      "	outColor = vec4(vColor, 1.0);\n"
-                                      "}\n";
-
-static GLuint
-compile_shader(GLenum type, const char* string)
-{
-    GLuint shader = glCreateShader(type);
-    glShaderSource(shader, 1, &string, NULL);
-    glCompileShader(shader);
-    GLint status = 0;
-    glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
-    if (status == GL_FALSE) {
-        GLint length = 0;
-        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
-        char* log = malloc(length);
-        glGetShaderInfoLog(shader, length, NULL, log);
-        error("can't compile shader: %s", log);
-        exit(EXIT_FAILURE);
-    }
-    return shader;
-}
-
-static void
-program_create(struct program* program)
-{
-    program->program = glCreateProgram();
-    GLuint vertex_shader = compile_shader(GL_VERTEX_SHADER, VERTEX_SHADER);
-    glAttachShader(program->program, vertex_shader);
-    GLuint fragment_shader =
-        compile_shader(GL_FRAGMENT_SHADER, FRAGMENT_SHADER);
-    glAttachShader(program->program, fragment_shader);
-    for (enum attrib attrib = ATTRIB_BEGIN; attrib != ATTRIB_END; ++attrib) {
-        glBindAttribLocation(program->program, attrib, ATTRIB_NAMES[attrib]);
-    }
-    glLinkProgram(program->program);
-    GLint status = 0;
-    glGetProgramiv(program->program, GL_LINK_STATUS, &status);
-    if (status == GL_FALSE) {
-        GLint length = 0;
-        glGetProgramiv(program->program, GL_INFO_LOG_LENGTH, &length);
-        char* log = malloc(length);
-        glGetProgramInfoLog(program->program, length, NULL, log);
-        error("can't link program: %s", log);
-        exit(EXIT_FAILURE);
-    }
-    for (enum uniform uniform = UNIFORM_BEGIN; uniform != UNIFORM_END;
-         ++uniform) {
-        program->uniform_locations[uniform] =
-            glGetUniformLocation(program->program, UNIFORM_NAMES[uniform]);
-    }
-}
-
-static void
-program_destroy(struct program* program)
-{
-    glDeleteProgram(program->program);
-}
-
-struct attrib_pointer
-{
-    GLint size;
-    GLenum type;
-    GLboolean normalized;
-    GLsizei stride;
-    const GLvoid* pointer;
-};
-
-struct vertex
-{
-    float position[4];
-    float color[4];
-};
-
-struct geometry
-{
-    GLuint vertex_array;
-    GLuint vertex_buffer;
-    GLuint index_buffer;
-};
-
-static const struct attrib_pointer ATTRIB_POINTERS[ATTRIB_END] = {
-    { 3, GL_FLOAT, GL_FALSE, sizeof(struct vertex),
-      (const GLvoid*)offsetof(struct vertex, position) },
-    { 3, GL_FLOAT, GL_FALSE, sizeof(struct vertex),
-      (const GLvoid*)offsetof(struct vertex, color) },
-};
-
-static const struct vertex VERTICES[] = {
-    { { -1.0, +1.0, -1.0 }, { 1.0, 0.0, 1.0 } },
-    { { +1.0, +1.0, -1.0 }, { 0.0, 1.0, 0.0 } },
-    { { +1.0, +1.0, +1.0 }, { 0.0, 0.0, 1.0 } },
-    { { -1.0, +1.0, +1.0 }, { 1.0, 0.0, 0.0 } },
-    { { -1.0, -1.0, -1.0 }, { 0.0, 0.0, 1.0 } },
-    { { -1.0, -1.0, +1.0 }, { 0.0, 1.0, 0.0 } },
-    { { +1.0, -1.0, +1.0 }, { 1.0, 0.0, 1.0 } },
-    { { +1.0, -1.0, -1.0 }, { 1.0, 0.0, 0.0 } },
-};
-
-static const unsigned short INDICES[] = {
-    0, 2, 1, 2, 0, 3,
-    4, 6, 5, 6, 4, 7,
-    2, 6, 7, 7, 1, 2,
-    0, 4, 5, 5, 3, 0,
-    3, 5, 6, 6, 2, 3,
-    0, 1, 7, 7, 4, 0,
-};
-
-static const GLsizei NUM_INDICES = sizeof(INDICES) / sizeof(INDICES[0]);
-
-static void
-geometry_create(struct geometry* geometry)
-{
-    glGenVertexArrays(1, &geometry->vertex_array);
-    glBindVertexArray(geometry->vertex_array);
-    glGenBuffers(1, &geometry->vertex_buffer);
-    glBindBuffer(GL_ARRAY_BUFFER, geometry->vertex_buffer);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(VERTICES), VERTICES, GL_STATIC_DRAW);
-    for (enum attrib attrib = ATTRIB_BEGIN; attrib != ATTRIB_END; ++attrib) {
-        struct attrib_pointer attrib_pointer = ATTRIB_POINTERS[attrib];
-        glEnableVertexAttribArray(attrib);
-        glVertexAttribPointer(attrib, attrib_pointer.size, attrib_pointer.type,
-                              attrib_pointer.normalized, attrib_pointer.stride,
-                              attrib_pointer.pointer);
-    }
-    glGenBuffers(1, &geometry->index_buffer);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, geometry->index_buffer);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(INDICES), INDICES,
-                 GL_STATIC_DRAW);
-    glBindVertexArray(0);
-}
-
-static void
-geometry_destroy(struct geometry* geometry)
-{
-    glDeleteBuffers(1, &geometry->index_buffer);
-    glDeleteBuffers(1, &geometry->vertex_buffer);
-    glDeleteVertexArrays(1, &geometry->vertex_array);
 }
 
 struct renderer
 {
     struct framebuffer framebuffers[VRAPI_FRAME_LAYER_EYE_MAX];
-    struct program program;
-    struct geometry geometry;
 };
 
 static void
@@ -556,15 +362,11 @@ renderer_create(struct renderer* renderer, GLsizei width, GLsizei height)
     for (int i = 0; i < VRAPI_FRAME_LAYER_EYE_MAX; ++i) {
         framebuffer_create(&renderer->framebuffers[i], width, height);
     }
-    program_create(&renderer->program);
-    geometry_create(&renderer->geometry);
 }
 
 static void
 renderer_destroy(struct renderer* renderer)
 {
-    geometry_destroy(&renderer->geometry);
-    program_destroy(&renderer->program);
     for (int i = 0; i < VRAPI_FRAME_LAYER_EYE_MAX; ++i) {
         framebuffer_destroy(&renderer->framebuffers[i]);
     }
@@ -599,7 +401,10 @@ renderer_render_frame(struct Game *game, struct renderer* renderer, ovrTracking2
             GL_DRAW_FRAMEBUFFER,
             framebuffer->framebuffers[framebuffer->swap_chain_index]);
 
-        render_game(game);
+        game->camera.viewport_width = framebuffer->width;
+        game->camera.viewport_height = framebuffer->height;
+
+        render_game(game, projection_matrix.M);
         /* glEnable(GL_CULL_FACE); */
         /* glEnable(GL_DEPTH_TEST); */
         /* glEnable(GL_SCISSOR_TEST); */
@@ -607,22 +412,7 @@ renderer_render_frame(struct Game *game, struct renderer* renderer, ovrTracking2
         /* glScissor(0, 0, framebuffer->width, framebuffer->height); */
         /* glClearColor(0.0, 0.0, 0.0, 0.0); */
 
-        /* glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); */
-        /* glUseProgram(renderer->program.program); */
-        /* glUniformMatrix4fv( */
-        /*     renderer->program.uniform_locations[UNIFORM_MODEL_MATRIX], 1, */
-        /*     GL_FALSE, (const GLfloat*)&model_matrix); */
-        /* glUniformMatrix4fv( */
-        /*     renderer->program.uniform_locations[UNIFORM_VIEW_MATRIX], 1, */
-        /*     GL_FALSE, (const GLfloat*)&view_matrix); */
-        /* glUniformMatrix4fv( */
-        /*     renderer->program.uniform_locations[UNIFORM_PROJECTION_MATRIX], 1, */
-        /*     GL_FALSE, (const GLfloat*)&projection_matrix); */
-        /* glBindVertexArray(renderer->geometry.vertex_array); */
-        /* glDrawElements(GL_TRIANGLES, NUM_INDICES, GL_UNSIGNED_SHORT, NULL); */
-        /* glBindVertexArray(0); */
-        /* glUseProgram(0); */
-
+        // TODO: what is this here for?
         /* glClearColor(0.0, 0.0, 0.0, 1.0); */
         /* glScissor(0, 0, 1, framebuffer->height); */
         /* glClear(GL_COLOR_BUFFER_BIT); */
@@ -636,14 +426,14 @@ renderer_render_frame(struct Game *game, struct renderer* renderer, ovrTracking2
         static const GLenum ATTACHMENTS[] = { GL_DEPTH_ATTACHMENT };
         static const GLsizei NUM_ATTACHMENTS =
             sizeof(ATTACHMENTS) / sizeof(ATTACHMENTS[0]);
-        glInvalidateFramebuffer(GL_DRAW_FRAMEBUFFER, NUM_ATTACHMENTS,
-                                ATTACHMENTS);
+        glInvalidateFramebuffer(GL_DRAW_FRAMEBUFFER, NUM_ATTACHMENTS, ATTACHMENTS);
         glFlush();
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 
         framebuffer->swap_chain_index = (framebuffer->swap_chain_index + 1) %
                                         framebuffer->swap_chain_length;
     }
+
     return layer;
 }
 
@@ -729,34 +519,62 @@ app_update_vr_mode(struct app* app)
 }
 
 static void
-app_handle_input(struct app* app)
+app_handle_input(struct app* app, struct Game *game)
 {
-    bool back_button_down_current_frame = false;
+  /* info("app_handle_input"); */
+  bool back_button_down_current_frame = false;
 
-    int i = 0;
-    ovrInputCapabilityHeader capability;
-    while (vrapi_EnumerateInputDevices(app->ovr, i, &capability) >= 0) {
-        if (capability.Type == ovrControllerType_TrackedRemote) {
-            ovrInputStateTrackedRemote input_state;
-            input_state.Header.ControllerType = ovrControllerType_TrackedRemote;
-            if (vrapi_GetCurrentInputState(app->ovr, capability.DeviceID,
-                                           &input_state.Header) == ovrSuccess) {
-                back_button_down_current_frame |=
-                    input_state.Buttons & ovrButton_Back;
-                back_button_down_current_frame |=
-                    input_state.Buttons & ovrButton_B;
-                back_button_down_current_frame |=
-                    input_state.Buttons & ovrButton_Y;
-            }
+  int i = 0;
+  ovrInputCapabilityHeader capability;
+  while (vrapi_EnumerateInputDevices(app->ovr, i, &capability) >= 0) {
+
+    if (capability.Type == ovrControllerType_TrackedRemote) {
+      ovrInputStateTrackedRemote input_state;
+      input_state.Header.ControllerType = ovrControllerType_TrackedRemote;
+      if (vrapi_GetCurrentInputState(app->ovr, capability.DeviceID,
+                                    &input_state.Header) == ovrSuccess) {
+        back_button_down_current_frame |=
+            input_state.Buttons & ovrButton_Back;
+        /* back_button_down_current_frame |= */
+        /*     input_state.Buttons & ovrButton_B; */
+        /* back_button_down_current_frame |= */
+        /*     input_state.Buttons & ovrButton_Y; */
+
+        if (input_state.Joystick.y > 0.5f) {
+          struct GameInputEvent event = {
+            .key = 'w',
+            .type = KeyDown
+          };
+          add_event(game, event);
+        } else if (input_state.Joystick.y < -0.5f) {  
+          struct GameInputEvent event = {
+            .key = 's',
+            .type = KeyDown
+          };
+          add_event(game, event); 
+        } else {
+          struct GameInputEvent w_event = {
+            .key = 'w',
+            .type = KeyUp
+          };
+          add_event(game, w_event);  
+          struct GameInputEvent d_event = {
+            .key = 's',
+            .type = KeyUp
+          };
+          add_event(game, d_event);   
         }
-        ++i;
+      }
     }
 
-    if (app->back_button_down_previous_frame &&
-        !back_button_down_current_frame) {
-        vrapi_ShowSystemUI(app->java, VRAPI_SYS_UI_CONFIRM_QUIT_MENU);
-    }
-    app->back_button_down_previous_frame = back_button_down_current_frame;
+    ++i;
+  }
+
+  if (app->back_button_down_previous_frame &&
+      !back_button_down_current_frame) {
+      vrapi_ShowSystemUI(app->java, VRAPI_SYS_UI_CONFIRM_QUIT_MENU);
+  }
+  app->back_button_down_previous_frame = back_button_down_current_frame;
 }
 
 static void
@@ -830,14 +648,30 @@ android_main(struct android_app* android_app)
             app_update_vr_mode(&app);
         }
 
-        app_handle_input(&app);
+        app_handle_input(&app, game);
+
+        update_game(game, 0.16f);  //TODO actual time delta
 
         if (app.ovr == NULL) {
             continue;
         }
+
         app.frame_index++;
         const double display_time = vrapi_GetPredictedDisplayTime(app.ovr, app.frame_index);
         ovrTracking2 tracking = vrapi_GetPredictedTracking2(app.ovr, display_time);
+
+        ovrQuatf d_quat = tracking.HeadPose.Pose.Orientation;
+        
+        // NOTE: https://gamedev.stackexchange.com/a/157954 
+        // Converts the quaternion from the HMD axes to our world axes
+        //         | HMD | Game |
+        // forward | -z  |   y  |
+        // up      |  y  |  -z  |
+        // right   |  x  |  -x  |
+        versor delta;
+        glm_quat_init(delta, d_quat.x, d_quat.z, d_quat.y, -d_quat.w);
+        glm_quat_copy(delta, game->camera.quat);
+
         const ovrLayerProjection2 layer = renderer_render_frame(game, &app.renderer, &tracking);
 
         const ovrLayerHeader2* layers[] = { &layer.Header };
@@ -852,6 +686,8 @@ android_main(struct android_app* android_app)
     }
 
     app_destroy(&app);
+    game_free(game);
+    free(game);
 
     info("shut down vr api");
     vrapi_Shutdown();

@@ -75,7 +75,6 @@ int main(void) {
   }
 
 	assert(glGetError() == GL_NO_ERROR);
-	glEnable(GL_DEPTH_TEST);
 
   info("Game data struct is %lu bytes\n", sizeof(struct Game));
   struct Game *game = calloc(1, sizeof(struct Game));
@@ -146,7 +145,15 @@ int main(void) {
     
     /* glBindFramebuffer(GL_FRAMEBUFFER, 0); */
     SDL_GetWindowSize(window, &game->camera.viewport_width, &game->camera.viewport_height);
-    render_game(game);
+
+    mat4 projection_matrix = GLM_MAT4_IDENTITY;
+    glm_perspective(glm_rad(90), game->camera.viewport_width/ (float) game->camera.viewport_height, 0.01f, 1000.0f, projection_matrix);
+
+    versor quat = GLM_QUAT_IDENTITY;
+    glm_quat(quat, M_PI - game->camera.pitch, 0, 0, 1);
+    glm_quat_copy(quat, game->camera.quat);
+
+    render_game(game, projection_matrix);
 
     SDL_GL_SwapWindow(window);
 

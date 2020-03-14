@@ -32,8 +32,8 @@ void render_vertical_line(struct FrameBuffer *frame, int x, int y_start, int y_e
 }
 
 void render(struct FrameBuffer *frame, struct ImageBuffer *color_map, struct ImageBuffer *height_map, struct Camera *camera) {
-  float cosphi = cos(camera->rotation);
-  float sinphi = sin(camera->rotation);
+  float cosphi = cos(camera->pitch);
+  float sinphi = sin(camera->pitch);
 
   for (int i = 0; i < frame->width; ++i) {
     frame->y_buffer[i] = frame->height;
