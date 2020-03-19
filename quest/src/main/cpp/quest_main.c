@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdarg.h>
+#include "types.h"
 #include "game.h"
 #include "cglm/cglm.h"
 
