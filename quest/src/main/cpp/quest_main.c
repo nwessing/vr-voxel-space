@@ -627,8 +627,8 @@ android_main(struct android_app* android_app)
       error("com.wessing.vr_voxel_space couldn't initialize game");   
       exit(EXIT_FAILURE);
     }
+
     info("com.wessing.vr_voxel_space Game initialized!");   
-    
 
     android_app->userData = &app;
     android_app->onAppCmd = app_on_cmd;
