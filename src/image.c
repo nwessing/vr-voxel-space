@@ -57,7 +57,7 @@ struct Color get_image_color(struct ImageBuffer *image, int x, int y) {
   return result;
 }
 
-int clamp(int position, int min, int max) {
+int clamp_i(int position, int min, int max) {
   if (position < min) {
     return min;
   }

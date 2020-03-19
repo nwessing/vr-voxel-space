@@ -8,28 +8,43 @@
 #include "raycasting.h"
 #include "string.h"
 #include "platform.h"
+#include "util.h"
+
+static inline void get_position_vector(struct Camera * camera, vec3 result) { 
+  // NOTE: Flip the z-axis so that x increases to the camera's right
+  // matching the way the map appears in the image
+  vec3 position = {camera->position_x, camera->position_y, -camera->position_height};
+  glm_vec3_copy(position, result);
+}
+
+static void get_forward_vector(struct Camera * camera, vec3 result) {
+  // Forward is +y direction.
+  vec3 center = {0, 1, 0};
+
+  versor user_rotation;
+  glm_quat(user_rotation, camera->pitch, 0, 0, -1);
+
+  // Find the direction vector indicating where the camera is pointing
+  mat4 rotate = GLM_MAT4_IDENTITY_INIT;
+  glm_quat_rotate(rotate, user_rotation, rotate);
+  glm_quat_rotate(rotate, camera->quat, rotate);
+
+  glm_mat4_mulv3(rotate, center, 1, result);           
+}
 
 static void render_real_3d(struct OpenGLData *gl, struct Camera *camera, mat4 in_projection_matrix) {
   glEnable(GL_DEPTH_TEST);
   glClearColor(0.529f, 0.808f, 0.98f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+  vec3 position;
+  get_position_vector(camera, position);
  
-  // NOTE: Flip the z-axis so that x increases to the camera's right
-  // matching the way the map appears in the image
-  vec3 position = {camera->position_x, camera->position_y, -camera->position_height};
+  vec3 forward;
+  get_forward_vector(camera, forward);
 
-  // Forward is +y direction.
-  vec3 center = {0, 1, 0};
-
-  // Find the direction vector indicating where the camera is pointing
-  mat4 rotate = GLM_MAT4_IDENTITY_INIT;
-  glm_quat_rotate(rotate, camera->quat, rotate);
-
-  mat4 translation = GLM_MAT4_IDENTITY_INIT;
-  glm_translate(translation, position);
-
-  glm_mat4_mul(translation, rotate, rotate);
-  glm_mat4_mulv3(rotate, center, 1, center);
+  vec3 center;
+  glm_vec3_add(position, forward, center);
 
   vec3 up = {0.0, 0.0, -1.0};
   mat4 view_matrix = GLM_MAT4_IDENTITY;
@@ -120,93 +135,78 @@ void render_game(struct Game *game, mat4 projection) {
     }
 }
 
-int32_t add_event(struct Game *game, struct GameInputEvent event) {
-  struct EventQueue *queue = &game->queue;
-  if (queue->length >= queue->capacity - 1) {
-    error("WARNING: Game event buffer full\n");
-    return GAME_ERROR;
-  }
-
-  int32_t new_index = (queue->index_next + queue->length) % queue->capacity;
-  queue->events[new_index] = event;
-  queue->length++;
-
-  return GAME_SUCCESS;
+static inline bool is_key_pressed(struct KeyboardState *keyboard, int32_t key) {
+  assert(key >= KEYBOAD_STATE_MIN_CHAR && key <= KEYBOARD_STATE_MAX_CHAR);
+  return keyboard->down[key - KEYBOAD_STATE_MIN_CHAR];
 }
 
-static bool pop_event(struct Game *game, struct GameInputEvent *output_event) {
-  struct EventQueue *queue = &game->queue;
-  if (queue->length == 0) {
-    return false;
-  }
+static inline float read_axis(float joystick_axis, bool negative_key_pressed, bool positive_key_pressed) {
+  float result = 0.0f;;
+  if (joystick_axis) {
+    result = joystick_axis;
+  } else {
+    if (positive_key_pressed) {
+      result = 1.0f;
+    } else if (negative_key_pressed) {
+      result = -1.0f;
+    }
+  } 
 
-  struct GameInputEvent event = queue->events[queue->index_next];
-  output_event->key = event.key;  
-  output_event->type = event.type;  
-  queue->index_next = (queue->index_next + 1) % queue->capacity;
-  queue->length--;
-
-  return true;
+  return clamp(result, -1.0f, 1.0f);
 }
 
-void update_game(struct Game *game, float elapsed) {
-  struct GameController *controller = &game->controller;
+void update_game(struct Game *game, 
+                 struct KeyboardState *keyboard,  
+                 struct ControllerState *left_controller, 
+                 struct ControllerState *right_controller, 
+                 float elapsed) {
+  game->prev_keyboard = game->keyboard;
+  game->keyboard = *keyboard;
 
-  struct GameInputEvent event;
-  while (pop_event(game, &event)) {
-    if (event.key == 'w')
-    {
-      controller->move_forward = event.type == KeyDown;
-    }
+  game->prev_controller[LEFT_CONTROLLER_INDEX] = game->controller[LEFT_CONTROLLER_INDEX]; 
+  game->prev_controller[RIGHT_CONTROLLER_INDEX] = game->controller[RIGHT_CONTROLLER_INDEX]; 
+  game->controller[LEFT_CONTROLLER_INDEX] = *left_controller;
+  game->controller[RIGHT_CONTROLLER_INDEX] = *right_controller;
 
-    if (event.key == 's')
-    {
-      controller->move_backward = event.type == KeyDown;
-    }
+  float forward_movement = read_axis(
+      game->controller[LEFT_CONTROLLER_INDEX].joy_stick.y, 
+      is_key_pressed(&game->keyboard,'s'),
+      is_key_pressed(&game->keyboard,'w'));
 
-    if (event.key == 'a')
-    {
-      controller->turn_left = event.type == KeyDown;
-    }
+  float horizontal_movement = read_axis(
+      game->controller[LEFT_CONTROLLER_INDEX].joy_stick.x, 
+      is_key_pressed(&game->keyboard,'a'),
+      is_key_pressed(&game->keyboard,'d'));
+   
+  float rotation_movement = read_axis(
+      game->controller[RIGHT_CONTROLLER_INDEX].joy_stick.x, false, false);
 
-    if (event.key == 'd')
-    {
-      controller->turn_right = event.type == KeyDown;
-    }
+  vec3 direction;
+  { 
+    vec3 position;
+    get_position_vector(&game->camera, position); 
 
-    if (event.key == 'e')
-    {
-      game->camera.clip++;
-      info("clip %i\n", game->camera.clip);
-    }
+    vec3 forward;
+    get_forward_vector(&game->camera, forward); 
 
-    if (event.key == 'r')
-    {
-      game->camera.clip--;
-      info("clip %i\n", game->camera.clip);
-    }
+    float units_per_second = 250.0f;
+    vec3 up = {0.0f, 0.0f, -1.0f};
+    vec3 right;
+    glm_vec3_cross(up, forward, right);
+    glm_vec3_inv(right);
 
-    if (event.key == 'v' && event.type == KeyDown)
-    {
-      game->options.render_stereo = !game->options.render_stereo;
-    }
+    float forward_distance = forward_movement * units_per_second * elapsed;
+    float horizontal_distance = horizontal_movement * units_per_second * elapsed;
+    glm_vec3_scale(forward, forward_distance, forward);
+    glm_vec3_scale(right, horizontal_distance, right);
 
-    if (event.key == 't' && event.type == KeyDown)
-    {
-      game->options.do_raycasting = !game->options.do_raycasting;
-    }
+    glm_vec3_add(forward, right, direction);
   }
 
-  if (controller->move_forward || controller->move_backward) {
-    int modifier = controller->move_forward ? -1 : 1;
-    game->camera.position_y += modifier * cos(game->camera.pitch) * 25 * elapsed;
-    game->camera.position_x += modifier * sin(game->camera.pitch) * 25 * elapsed;
-  }
+  game->camera.position_x += direction[0];
+  game->camera.position_y += direction[1];
 
-  if (controller->turn_left || controller->turn_right) {
-    int modifier = controller->turn_left ? 1 : -1;
-    game->camera.pitch += modifier * M_PI * elapsed;
-  }
+  game->camera.pitch += -rotation_movement * M_PI * elapsed;
 
   while (game->camera.pitch >= 2 * M_PI) {
     game->camera.pitch -= 2 * M_PI;
@@ -398,9 +398,12 @@ int32_t game_init(struct Game *game, int32_t width, int32_t height) {
     return GAME_ERROR;
   }
 
-  game->queue.capacity = EVENT_QUEUE_CAPACITY;
-  game->queue.index_next = 0;
-  game->queue.length = 0;
+  memset(&game->keyboard, 0, sizeof(game->keyboard));
+  memset(&game->prev_keyboard, 0, sizeof(game->keyboard));
+  memset(&game->prev_controller[LEFT_CONTROLLER_INDEX], 0, sizeof(game->prev_controller[0]));
+  memset(&game->prev_controller[RIGHT_CONTROLLER_INDEX], 0, sizeof(game->prev_controller[0]));
+  memset(&game->controller[LEFT_CONTROLLER_INDEX], 0, sizeof(game->controller[0]));
+  memset(&game->controller[RIGHT_CONTROLLER_INDEX], 0, sizeof(game->controller[0]));
 
   create_frame_buffer(game, width, height);
 
@@ -409,7 +412,7 @@ int32_t game_init(struct Game *game, int32_t width, int32_t height) {
   .viewport_height = height,
   .distance = 800,
   .quat = GLM_QUAT_IDENTITY_INIT,
-  .pitch = M_PI,
+  .pitch = 0, //M_PI,
   .horizon = game->frame.height / 2,
   .scale_height = game->frame.height * 0.35,
   .position_x = 436,

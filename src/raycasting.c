@@ -20,9 +20,9 @@ void put_pixel(struct FrameBuffer *frame, struct Color color, int x, int y) {
 }
 
 void render_vertical_line(struct FrameBuffer *frame, int x, int y_start, int y_end, struct Color color) {
-  x = clamp(x, 0, frame->width - 1);
-  y_start = clamp(y_start, 0, frame->height - 1);
-  y_end = clamp(y_end, 0, frame->height - 1);
+  x = clamp_i(x, 0, frame->width - 1);
+  y_start = clamp_i(y_start, 0, frame->height - 1);
+  y_end = clamp_i(y_end, 0, frame->height - 1);
 
   assert(y_end >= 0 && y_end < frame->height);
 

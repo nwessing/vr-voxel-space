@@ -12,9 +12,12 @@
 #include "game.h"
 #include "stdarg.h"
 #include "platform.h"
+#include "util.h"
 
 #define INITIAL_SCREEN_WIDTH 800
 #define INITIAL_SCREEN_HEIGHT 640
+
+#define MOUSE_SENSITIVITY 4.0f
 
 int error(const char *format, ...) {
   va_list args;
@@ -66,6 +69,8 @@ int main(void) {
 		return 1;
 	}
 
+	SDL_SetRelativeMouseMode(SDL_TRUE);
+
   error("%s\n", glGetString(GL_VERSION));
 
 	sdl_error = SDL_GetError();
@@ -89,6 +94,7 @@ int main(void) {
   uint32_t num_frames = 0;
   uint32_t time_begin = SDL_GetTicks();
 
+  struct KeyboardState key_state = {0};
   while (!quit)
   {
     uint32_t time = SDL_GetTicks();
@@ -101,17 +107,17 @@ int main(void) {
     float elapsed = (time - time_last) / 1000.0;
     time_last = time;
 
+    struct ControllerState left_controller = {0};
+    struct ControllerState right_controller = {0};
     SDL_Event e;
-
     while (SDL_PollEvent(&e) != 0)
     {
       if (e.type == SDL_QUIT ||
-          e.key.keysym.sym == SDLK_q)
-      {
+          (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_q)) {
         quit = true;
       }
 
-      if (e.key.keysym.sym == SDLK_f && e.key.repeat == 0 && e.type == SDL_KEYDOWN) {
+      if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_f && e.key.repeat == 0) {
         SDL_DisplayMode mode;
         if (SDL_GetDisplayMode(0, 0, &mode) == 0) {
           info("Display Mode: %ix%i\n", mode.w, mode.h);
@@ -122,23 +128,21 @@ int main(void) {
         unsigned int new_mode = (flags & SDL_WINDOW_FULLSCREEN) == 0 ? SDL_WINDOW_FULLSCREEN : 0;
         SDL_SetWindowFullscreen(window, new_mode);
       }
-
-      if (e.type == SDL_KEYDOWN && e.key.repeat == 0) {
-        struct GameInputEvent event = {0};
-        event.type = KeyDown;
-        event.key = e.key.keysym.sym;
-        add_event(game, event);
+      
+      if ((e.type == SDL_KEYDOWN || e.type == SDL_KEYUP) && e.key.repeat == 0) {
+        int32_t key_index = e.key.keysym.sym - KEYBOAD_STATE_MIN_CHAR;  
+        if (key_index >= 0 && key_index <= KEYBOARD_STATE_NUM_KEYS) {
+          key_state.down[key_index] = e.type == SDL_KEYDOWN;  
+        }
       }
 
-      if (e.type == SDL_KEYUP && e.key.repeat == 0) {
-        struct GameInputEvent event = {0};
-        event.type = KeyUp;
-        event.key = e.key.keysym.sym;
-        add_event(game, event);
+      if (e.type == SDL_MOUSEMOTION) {
+        float rotation_intensity = e.motion.xrel * elapsed * MOUSE_SENSITIVITY;
+        right_controller.joy_stick.x = clamp(rotation_intensity, -1.0f, 1.0f);
       }
     }
 
-    update_game(game, elapsed);
+    update_game(game, &key_state, &left_controller, &right_controller, elapsed);
 #ifdef INCLUDE_LIBOVR
     render_buffer_to_hmd(&vr, &game.frame, &gl, &color_map, &height_map, &camera, num_frames);
 #else

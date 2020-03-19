@@ -35,6 +35,7 @@ aarch64-linux-android26-clang\
     ../../../../src/image.c\
     ../../../../src/raycasting.c\
     ../../../../src/shader.c\
+    ../../../../src/util.c\
     ../../../src/main/cpp/*.c
 cp $OVR_HOME/VrApi/Libs/Android/arm64-v8a/Debug/libvrapi.so .
 popd > /dev/null

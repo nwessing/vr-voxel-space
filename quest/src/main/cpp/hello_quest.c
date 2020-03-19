@@ -519,7 +519,7 @@ app_update_vr_mode(struct app* app)
 }
 
 static void
-app_handle_input(struct app* app, struct Game *game)
+app_handle_input(struct app* app, struct ControllerState *left_controller, struct ControllerState *right_controller)
 {
   /* info("app_handle_input"); */
   bool back_button_down_current_frame = false;
@@ -527,42 +527,40 @@ app_handle_input(struct app* app, struct Game *game)
   int i = 0;
   ovrInputCapabilityHeader capability;
   while (vrapi_EnumerateInputDevices(app->ovr, i, &capability) >= 0) {
-
     if (capability.Type == ovrControllerType_TrackedRemote) {
+      ovrInputTrackedRemoteCapabilities remote_capability;
+      remote_capability.Header = capability;
+      if (vrapi_GetInputDeviceCapabilities(app->ovr, &remote_capability.Header) != ovrSuccess) {
+        error("Could not get tracked remote capabilities");
+        continue;
+      } 
+
       ovrInputStateTrackedRemote input_state;
       input_state.Header.ControllerType = ovrControllerType_TrackedRemote;
-      if (vrapi_GetCurrentInputState(app->ovr, capability.DeviceID,
-                                    &input_state.Header) == ovrSuccess) {
-        back_button_down_current_frame |=
-            input_state.Buttons & ovrButton_Back;
-        /* back_button_down_current_frame |= */
-        /*     input_state.Buttons & ovrButton_B; */
-        /* back_button_down_current_frame |= */
-        /*     input_state.Buttons & ovrButton_Y; */
+      if (vrapi_GetCurrentInputState(app->ovr, capability.DeviceID, &input_state.Header) != ovrSuccess) {
+        error("Could not get input state for tracked remote");
+        continue;
+      }
 
-        if (input_state.Joystick.y > 0.5f) {
-          struct GameInputEvent event = {
-            .key = 'w',
-            .type = KeyDown
-          };
-          add_event(game, event);
-        } else if (input_state.Joystick.y < -0.5f) {  
-          struct GameInputEvent event = {
-            .key = 's',
-            .type = KeyDown
-          };
-          add_event(game, event); 
-        } else {
-          struct GameInputEvent w_event = {
-            .key = 'w',
-            .type = KeyUp
-          };
-          add_event(game, w_event);  
-          struct GameInputEvent d_event = {
-            .key = 's',
-            .type = KeyUp
-          };
-          add_event(game, d_event);   
+      back_button_down_current_frame |= input_state.Buttons & ovrButton_Back;
+
+      bool is_left = (remote_capability.ControllerCapabilities & ovrControllerCaps_LeftHand) > 0;
+      bool is_right = (remote_capability.ControllerCapabilities & ovrControllerCaps_RightHand) > 0;
+      if (is_left || is_right) {
+        struct ControllerState *controller = is_left ? left_controller : right_controller;
+        controller->joy_stick.x = input_state.Joystick.x;      
+        controller->joy_stick.y = input_state.Joystick.y;      
+        controller->trigger = input_state.IndexTrigger;
+        controller->grip = input_state.GripTrigger;
+
+        if (is_right) {
+          controller->primary_button = (input_state.Buttons & ovrButton_A) > 0;
+          controller->secondary_button = (input_state.Buttons & ovrButton_B) > 0; 
+        }
+
+        if (is_left) {
+          controller->primary_button = (input_state.Buttons & ovrButton_X) > 0; 
+          controller->secondary_button = (input_state.Buttons & ovrButton_Y) > 0; 
         }
       }
     }
@@ -634,6 +632,10 @@ android_main(struct android_app* android_app)
 
     android_app->userData = &app;
     android_app->onAppCmd = app_on_cmd;
+    struct KeyboardState keyboard_state = {0};
+    struct ControllerState left_controller = {0};
+    struct ControllerState right_controller = {0};
+    double last_predicted_display_time = 0.0; 
     while (!android_app->destroyRequested) {
         for (;;) {
             int events = 0;
@@ -648,16 +650,17 @@ android_main(struct android_app* android_app)
             app_update_vr_mode(&app);
         }
 
-        app_handle_input(&app, game);
-
-        update_game(game, 0.16f);  //TODO actual time delta
+        app_handle_input(&app, &left_controller, &right_controller);
 
         if (app.ovr == NULL) {
             continue;
         }
 
         app.frame_index++;
+        
         const double display_time = vrapi_GetPredictedDisplayTime(app.ovr, app.frame_index);
+        float delta = display_time - last_predicted_display_time;
+        if (delta < 0) { delta = 0; }
         ovrTracking2 tracking = vrapi_GetPredictedTracking2(app.ovr, display_time);
 
         ovrQuatf d_quat = tracking.HeadPose.Pose.Orientation;
@@ -668,9 +671,14 @@ android_main(struct android_app* android_app)
         // forward | -z  |   y  |
         // up      |  y  |  -z  |
         // right   |  x  |  -x  |
-        versor delta;
-        glm_quat_init(delta, d_quat.x, d_quat.z, d_quat.y, -d_quat.w);
-        glm_quat_copy(delta, game->camera.quat);
+        versor quat;
+        glm_quat_init(quat, d_quat.x, d_quat.z, d_quat.y, -d_quat.w);
+        glm_quat_copy(quat, game->camera.quat);
+
+        // Don't update on first render
+        if (last_predicted_display_time > 0) {
+          update_game(game, &keyboard_state, &left_controller, &right_controller, delta);  
+        }
 
         const ovrLayerProjection2 layer = renderer_render_frame(game, &app.renderer, &tracking);
 
@@ -683,6 +691,7 @@ android_main(struct android_app* android_app)
         frame.LayerCount = 1;
         frame.Layers = layers;
         vrapi_SubmitFrame2(app.ovr, &frame);
+        last_predicted_display_time = display_time;
     }
 
     app_destroy(&app);

@@ -70,38 +70,46 @@ struct GameOptions {
   bool render_stereo;
 };
 
-enum GameEventType {
-  KeyDown = 1,
-  KeyUp = 2
+// NOTE: Represent states of all keys for ASCII codes 32-127
+#define KEYBOAD_STATE_MIN_CHAR 32
+#define KEYBOARD_STATE_MAX_CHAR 127
+
+#define KEYBOARD_STATE_NUM_KEYS KEYBOARD_STATE_MAX_CHAR - KEYBOAD_STATE_MIN_CHAR + 1
+struct KeyboardState {
+  bool down[KEYBOARD_STATE_NUM_KEYS];  
 };
 
-struct GameInputEvent {
-  int32_t key;  
-  int32_t type;
+// -1.0 to 1.0 
+// for both x and y
+struct Vec2 {
+  float x;    
+  float y;    
 };
 
-#define EVENT_QUEUE_CAPACITY 32
-struct EventQueue {
-  struct GameInputEvent events[EVENT_QUEUE_CAPACITY];
-  int32_t index_next;
-  int32_t length;
-  int32_t capacity;
+struct ControllerState {
+  struct Vec2 joy_stick;
+  
+  // 0.0 to 1.0
+  float trigger; 
+  
+  // 0.0 to 1.0
+  float grip; 
+  bool primary_button;
+  bool secondary_button;
 };
 
-struct GameController {
-  bool move_forward;
-  bool move_backward;
-  bool turn_left;
-  bool turn_right;
-};
 
+#define LEFT_CONTROLLER_INDEX 0
+#define RIGHT_CONTROLLER_INDEX 1
 struct Game {
   struct GameOptions options;
-  struct GameController controller;
   struct Camera camera;
   struct ImageBuffer color_map;
   struct ImageBuffer height_map;
   struct FrameBuffer frame;
   struct OpenGLData gl;
-  struct EventQueue queue;
+  struct KeyboardState prev_keyboard;
+  struct KeyboardState keyboard;
+  struct ControllerState prev_controller[2];
+  struct ControllerState controller[2];
 };
