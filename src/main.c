@@ -117,7 +117,7 @@ int main(void) {
         quit = true;
       }
 
-      if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_f && e.key.repeat == 0) {
+      if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_z && e.key.repeat == 0) {
         SDL_DisplayMode mode;
         if (SDL_GetDisplayMode(0, 0, &mode) == 0) {
           info("Display Mode: %ix%i\n", mode.w, mode.h);
@@ -152,10 +152,6 @@ int main(void) {
 
     mat4 projection_matrix = GLM_MAT4_IDENTITY;
     glm_perspective(glm_rad(90), game->camera.viewport_width/ (float) game->camera.viewport_height, 0.01f, 1000.0f, projection_matrix);
-
-    versor quat = GLM_QUAT_IDENTITY;
-    glm_quat(quat, M_PI - game->camera.pitch, 0, 0, 1);
-    glm_quat_copy(quat, game->camera.quat);
 
     render_game(game, projection_matrix);
 

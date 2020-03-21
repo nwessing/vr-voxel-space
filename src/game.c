@@ -17,19 +17,31 @@ static inline void get_position_vector(struct Camera * camera, vec3 result) {
   glm_vec3_copy(position, result);
 }
 
-static void get_forward_vector(struct Camera * camera, vec3 result) {
-  // Forward is +y direction.
-  vec3 center = {0, 1, 0};
+// Find the direction vector indicating where the camera is pointing
+static void get_forward_vector(struct Camera * camera, vec3 direction, bool only_use_pitch, vec3 result) {
 
   versor user_rotation;
   glm_quat(user_rotation, camera->pitch, 0, 0, -1);
 
-  // Find the direction vector indicating where the camera is pointing
   mat4 rotate = GLM_MAT4_IDENTITY_INIT;
   glm_quat_rotate(rotate, user_rotation, rotate);
-  glm_quat_rotate(rotate, camera->quat, rotate);
 
-  glm_mat4_mulv3(rotate, center, 1, result);           
+  if (only_use_pitch) {
+    mat4 cam_rotation;
+    glm_quat_mat4(camera->quat, cam_rotation);
+
+    vec3 euler_angles;
+    glm_euler_angles(cam_rotation, euler_angles);
+    euler_angles[0] = 0;
+    euler_angles[1] = 0;
+    glm_euler(euler_angles, cam_rotation);
+
+    glm_mat4_mul(rotate, cam_rotation, rotate);
+  } else {
+    glm_quat_rotate(rotate, camera->quat, rotate);
+  }
+
+  glm_mat4_mulv3(rotate, direction, 1, result);           
 }
 
 static void render_real_3d(struct OpenGLData *gl, struct Camera *camera, mat4 in_projection_matrix) {
@@ -39,9 +51,11 @@ static void render_real_3d(struct OpenGLData *gl, struct Camera *camera, mat4 in
 
   vec3 position;
   get_position_vector(camera, position);
- 
+
+  // Forward is +y direction.
+  vec3 dir = {0, 1, 0};
   vec3 forward;
-  get_forward_vector(camera, forward);
+  get_forward_vector(camera, dir, false, forward);
 
   vec3 center;
   glm_vec3_add(position, forward, center);
@@ -101,8 +115,6 @@ static void render_buffer_to_gl(struct FrameBuffer *frame, struct OpenGLData *gl
 
 void render_game(struct Game *game, mat4 projection) {
     glViewport(0, 0, game->camera.viewport_width, game->camera.viewport_height);
-
-    game->camera.position_height = get_image_grey(&game->height_map, game->camera.position_x, game->camera.position_y) + 50;
 
     if (game->options.do_raycasting) {
       memset(game->frame.pixels, 0, game->frame.height * game->frame.pitch);
@@ -177,36 +189,51 @@ void update_game(struct Game *game,
       game->controller[LEFT_CONTROLLER_INDEX].joy_stick.x, 
       is_key_pressed(&game->keyboard,'a'),
       is_key_pressed(&game->keyboard,'d'));
+
+  float vertical_movement = 0.0f;
+  if (game->controller[RIGHT_CONTROLLER_INDEX].primary_button || is_key_pressed(&game->keyboard, 'f')) {
+    vertical_movement -= 1.0f;
+  }
+
+  if (game->controller[RIGHT_CONTROLLER_INDEX].secondary_button || is_key_pressed(&game->keyboard, 'r')) {
+    vertical_movement += 1.0f;
+  }
    
   float rotation_movement = read_axis(
       game->controller[RIGHT_CONTROLLER_INDEX].joy_stick.x, false, false);
 
-  vec3 direction;
+  struct ControllerState *left_controller_prev = &game->prev_controller[LEFT_CONTROLLER_INDEX];
+  if (left_controller->primary_button && left_controller_prev->primary_button != left_controller->primary_button) {
+    game->camera.is_z_relative_to_ground = !game->camera.is_z_relative_to_ground;   
+  }
+
+  float prev_ground_height = get_image_grey(&game->height_map, game->camera.position_x, game->camera.position_y);
+  vec3 direction_intensities = (vec3) {-horizontal_movement, forward_movement, vertical_movement};
+  vec3 movement;
   { 
     vec3 position;
     get_position_vector(&game->camera, position); 
 
     vec3 forward;
-    get_forward_vector(&game->camera, forward); 
+    get_forward_vector(&game->camera, direction_intensities, true, forward); 
 
     float units_per_second = 250.0f;
-    vec3 up = {0.0f, 0.0f, -1.0f};
-    vec3 right;
-    glm_vec3_cross(up, forward, right);
-    glm_vec3_inv(right);
-
-    float forward_distance = forward_movement * units_per_second * elapsed;
-    float horizontal_distance = horizontal_movement * units_per_second * elapsed;
-    glm_vec3_scale(forward, forward_distance, forward);
-    glm_vec3_scale(right, horizontal_distance, right);
-
-    glm_vec3_add(forward, right, direction);
+    float delta_units = units_per_second * elapsed;
+    glm_vec3_scale(forward, delta_units, movement);
+    glm_vec3_clamp(movement, -delta_units, delta_units);
   }
 
-  game->camera.position_x += direction[0];
-  game->camera.position_y += direction[1];
+  game->camera.position_x += movement[0];
+  game->camera.position_y += movement[1];
+  game->camera.position_height += movement[2];
 
   game->camera.pitch += -rotation_movement * M_PI * elapsed;
+
+  if (game->camera.is_z_relative_to_ground) {
+    float ground_height = get_image_grey(&game->height_map, game->camera.position_x, game->camera.position_y);
+    float ground_height_diff = ground_height - prev_ground_height;
+    game->camera.position_height = clamp(game->camera.position_height + ground_height_diff, ground_height + 1, 10000.0f);
+  }
 
   while (game->camera.pitch >= 2 * M_PI) {
     game->camera.pitch -= 2 * M_PI;
@@ -408,17 +435,18 @@ int32_t game_init(struct Game *game, int32_t width, int32_t height) {
   create_frame_buffer(game, width, height);
 
   game->camera = (struct Camera) { 
-  .viewport_width = width,
-  .viewport_height = height,
-  .distance = 800,
-  .quat = GLM_QUAT_IDENTITY_INIT,
-  .pitch = 0, //M_PI,
-  .horizon = game->frame.height / 2,
-  .scale_height = game->frame.height * 0.35,
-  .position_x = 436,
-  .position_y = 54,
-  .position_height = 50,
-  .clip = .06f * game->frame.width
+    .viewport_width = width,
+    .viewport_height = height,
+    .distance = 800,
+    .quat = GLM_QUAT_IDENTITY_INIT,
+    .pitch = 0, //M_PI,
+    .horizon = game->frame.height / 2,
+    .scale_height = game->frame.height * 0.35,
+    .position_x = 436,
+    .position_y = 54,
+    .position_height = 200.0f,
+    .clip = .06f * game->frame.width,
+    .is_z_relative_to_ground = true
   };
 
   create_gl_objects(game);

@@ -46,6 +46,7 @@ struct Camera {
   float position_y;
   int32_t position_height;
   int32_t clip;
+  bool is_z_relative_to_ground;
 };
 
 struct OpenGLData {
