@@ -1,11 +1,11 @@
 CC=clang
 SHARED_CFLAGS=-Wall -Wextra -pedantic -O2 -std=c11 -Werror=implicit-function-declaration 
-CFLAGS=-DINCLUDE_GLAD -I ~/headers -g
+CFLAGS=-DINCLUDE_GLAD -Isrc -g
 LIBS=-lSDL2 -ldl -framework OpenGL
 ODIR=obj/sdl
 
 NDK_CC= $(NDK_HOME)/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android26-clang
-NDK_CFLAGS=-march=armv8-a -D_BSD_SOURCE -I./src/ -I./quest/src/main/cpp/ -I/Users/nickwessing/headers/ -I/usr/local/include/ -I$(NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/ -I$(OVR_HOME)/VrApi/Include 
+NDK_CFLAGS=-march=armv8-a -D_BSD_SOURCE -I./src/ -I./quest/src/main/cpp/ -I/usr/local/include/ -I$(NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/ -I$(OVR_HOME)/VrApi/Include 
 NDK_LIBS=-shared -landroid -llog -lvrapi -L $(NDK_HOME)/platforms/android-26/arch-arm64/usr/lib -L $(OVR_HOME)/VrApi/Libs/Android/arm64-v8a/Debug
 NDK_ODIR=obj/android
 AAPT=$(ANDROID_HOME)/build-tools/28.0.3/aapt
@@ -13,9 +13,9 @@ AAPT=$(ANDROID_HOME)/build-tools/28.0.3/aapt
 SHARED_DEPS=src/game.h src/shader.h src/file.h src/image.h src/raycasting.h src/util.h src/types.h
 _SHARED_OBJ=src/game.o src/shader.o src/file.o src/image.o src/raycasting.o src/util.o
 
-_SDL_OBJ=$(_SHARED_OBJ) src/main.o glad/glad.o
+_SDL_OBJ=$(_SHARED_OBJ) src/main.o src/glad/glad.o
 OBJ=$(patsubst %,$(ODIR)/%,$(_SDL_OBJ))
-DEPS=$(SHARED_DEPS) 
+DEPS=$(SHARED_DEPS) src/glad/glad.h 
                              
 _NDK_OBJ=$(_SHARED_OBJ) quest/src/main/cpp/quest_main.o quest/src/main/cpp/android_fopen.o quest/src/main/cpp/android_native_app_glue.o
 NDK_OBJ=$(patsubst %,$(NDK_ODIR)/%,$(_NDK_OBJ))
@@ -81,6 +81,7 @@ quest: $(NDK_ODIR)/lib/arm64-v8a/libmain.so $(NDK_ODIR)/classes.dex *.png src/es
 clean:
 	rm -rf $(ODIR)
 	rm -rf $(NDK_ODIR)
+	rm vr-voxel-space
 
 # TODO: Make windows build work if i ever use that again
 # ifeq ($(OS),Windows_NT)
