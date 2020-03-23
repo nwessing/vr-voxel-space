@@ -1,6 +1,5 @@
 #pragma once
 
-
 #ifdef INCLUDE_GLAD
 #include "glad/glad.h"
 #else 
