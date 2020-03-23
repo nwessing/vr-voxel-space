@@ -7,4 +7,5 @@
 .DS_Store
 .ccls-cache/
 vr-voxel-space
+obj/
 quest/build
