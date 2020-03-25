@@ -5,7 +5,7 @@ LIBS=-lSDL2 -ldl -framework OpenGL
 ODIR=obj/sdl
 
 NDK_CC= $(NDK_HOME)/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android26-clang
-NDK_CFLAGS=-march=armv8-a -D_BSD_SOURCE -I./src/ -I./quest/src/main/cpp/ -I/usr/local/include/ -I$(NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/ -I$(OVR_HOME)/VrApi/Include 
+NDK_CFLAGS=-march=armv8-a -D_BSD_SOURCE -include quest/src/main/cpp/android_fopen.h -I./src/ -I./quest/src/main/cpp/ -I/usr/local/include/ -I$(NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/ -I$(OVR_HOME)/VrApi/Include 
 NDK_LIBS=-shared -landroid -llog -lvrapi -L $(NDK_HOME)/platforms/android-26/arch-arm64/usr/lib -L $(OVR_HOME)/VrApi/Libs/Android/arm64-v8a/Debug
 NDK_ODIR=obj/android
 AAPT=$(ANDROID_HOME)/build-tools/28.0.3/aapt
