@@ -10,7 +10,8 @@
 #include "platform.h"
 #include "util.h"
 
-static inline void get_position_vector(struct Camera * camera, vec3 result) { 
+static float eye_distance = 0.0f;
+static inline void get_position_vector(struct Camera * camera, vec3 result) {
   // NOTE: Flip the z-axis so that x increases to the camera's right
   // matching the way the map appears in the image
   vec3 position = {camera->position_x, camera->position_y, -camera->position_height};
@@ -41,16 +42,26 @@ static void get_forward_vector(struct Camera * camera, vec3 direction, bool only
     glm_quat_rotate(rotate, camera->quat, rotate);
   }
 
-  glm_mat4_mulv3(rotate, direction, 1, result);           
+  glm_mat4_mulv3(rotate, direction, 1, result);
 }
 
-static void render_real_3d(struct OpenGLData *gl, struct Camera *camera, mat4 in_projection_matrix) {
+static void render_real_3d(struct OpenGLData *gl, struct Camera *camera, mat4 in_projection_matrix, mat4 in_view_matrix) {
+  static int eye_mod = 0;
   glEnable(GL_DEPTH_TEST);
   glClearColor(0.529f, 0.808f, 0.98f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
   vec3 position;
   get_position_vector(camera, position);
+
+  /* versor user_rotation; */
+  /* glm_quat(user_rotation, camera->pitch, 0, 0, -1); */
+  /* mat4 view_matrix = GLM_MAT4_IDENTITY_INIT; */
+  /* glm_quat_mat4(camera->quat, view_matrix); */
+  /* glm_translate(view_matrix, position); */
+
+  /* glm_mat4_mul(in_view_matrix, view_matrix, view_matrix); */
+
 
   // Forward is +y direction.
   vec3 dir = {0, 1, 0};
@@ -111,9 +122,9 @@ static void render_buffer_to_gl(struct FrameBuffer *frame, struct OpenGLData *gl
   check_opengl_error("glTexImage2D");
 
   glDrawArrays(GL_TRIANGLES, 0, gl->vao_num_vertices);
-}       
+}
 
-void render_game(struct Game *game, mat4 projection) {
+void render_game(struct Game *game, mat4 projection, mat4 view_matrix) {
     glViewport(0, 0, game->camera.viewport_width, game->camera.viewport_height);
 
     if (game->options.do_raycasting) {
@@ -143,7 +154,14 @@ void render_game(struct Game *game, mat4 projection) {
 
       render_buffer_to_gl(&game->frame, &game->gl, game->camera.clip);
     } else {
-      render_real_3d(&game->gl, &game->camera, projection);
+          static int eye_mod = -1;
+          int eye_dist = eye_distance;
+          struct Camera eye_cam = game->camera;
+          eye_cam.position_x += (int)(eye_mod * eye_dist * sin(eye_cam.pitch + (M_PI / 2)));
+          eye_cam.position_y += (int)(eye_mod * eye_dist * cos(eye_cam.pitch + (M_PI / 2)));
+          eye_mod = eye_mod == -1 ? 1 : -1;
+
+      render_real_3d(&game->gl, &eye_cam, projection, view_matrix);
     }
 }
 
@@ -162,31 +180,31 @@ static inline float read_axis(float joystick_axis, bool negative_key_pressed, bo
     } else if (negative_key_pressed) {
       result = -1.0f;
     }
-  } 
+  }
 
   return clamp(result, -1.0f, 1.0f);
 }
 
-void update_game(struct Game *game, 
-                 struct KeyboardState *keyboard,  
-                 struct ControllerState *left_controller, 
-                 struct ControllerState *right_controller, 
+void update_game(struct Game *game,
+                 struct KeyboardState *keyboard,
+                 struct ControllerState *left_controller,
+                 struct ControllerState *right_controller,
                  float elapsed) {
   game->prev_keyboard = game->keyboard;
   game->keyboard = *keyboard;
 
-  game->prev_controller[LEFT_CONTROLLER_INDEX] = game->controller[LEFT_CONTROLLER_INDEX]; 
-  game->prev_controller[RIGHT_CONTROLLER_INDEX] = game->controller[RIGHT_CONTROLLER_INDEX]; 
+  game->prev_controller[LEFT_CONTROLLER_INDEX] = game->controller[LEFT_CONTROLLER_INDEX];
+  game->prev_controller[RIGHT_CONTROLLER_INDEX] = game->controller[RIGHT_CONTROLLER_INDEX];
   game->controller[LEFT_CONTROLLER_INDEX] = *left_controller;
   game->controller[RIGHT_CONTROLLER_INDEX] = *right_controller;
 
   float forward_movement = read_axis(
-      game->controller[LEFT_CONTROLLER_INDEX].joy_stick.y, 
+      game->controller[LEFT_CONTROLLER_INDEX].joy_stick.y,
       is_key_pressed(&game->keyboard,'s'),
       is_key_pressed(&game->keyboard,'w'));
 
   float horizontal_movement = read_axis(
-      game->controller[LEFT_CONTROLLER_INDEX].joy_stick.x, 
+      game->controller[LEFT_CONTROLLER_INDEX].joy_stick.x,
       is_key_pressed(&game->keyboard,'a'),
       is_key_pressed(&game->keyboard,'d'));
 
@@ -198,24 +216,32 @@ void update_game(struct Game *game,
   if (game->controller[RIGHT_CONTROLLER_INDEX].secondary_button || is_key_pressed(&game->keyboard, 'r')) {
     vertical_movement += 1.0f;
   }
-   
+
+  if (game->controller[LEFT_CONTROLLER_INDEX].trigger >= 0.5f) {
+    eye_distance -= 1.0f * elapsed;
+  }
+
+  if (game->controller[RIGHT_CONTROLLER_INDEX].trigger >= 0.5f) {
+    eye_distance += 1.0f * elapsed;
+  }
+
   float rotation_movement = read_axis(
       game->controller[RIGHT_CONTROLLER_INDEX].joy_stick.x, false, false);
 
   struct ControllerState *left_controller_prev = &game->prev_controller[LEFT_CONTROLLER_INDEX];
   if (left_controller->primary_button && left_controller_prev->primary_button != left_controller->primary_button) {
-    game->camera.is_z_relative_to_ground = !game->camera.is_z_relative_to_ground;   
+    game->camera.is_z_relative_to_ground = !game->camera.is_z_relative_to_ground;
   }
 
   float prev_ground_height = get_image_grey(&game->height_map, game->camera.position_x, game->camera.position_y);
   vec3 direction_intensities = (vec3) {-horizontal_movement, forward_movement, vertical_movement};
   vec3 movement;
-  { 
+  {
     vec3 position;
-    get_position_vector(&game->camera, position); 
+    get_position_vector(&game->camera, position);
 
     vec3 forward;
-    get_forward_vector(&game->camera, direction_intensities, true, forward); 
+    get_forward_vector(&game->camera, direction_intensities, true, forward);
 
     float units_per_second = 250.0f;
     float delta_units = units_per_second * elapsed;
@@ -258,7 +284,7 @@ void update_game(struct Game *game,
   while (game->camera.position_y < 0) {
     game->camera.position_y += game->height_map.height;
   }
-}                 
+}
 
 static void create_gl_objects(struct Game *game) {
   float vertices[] = {
@@ -310,16 +336,16 @@ static void create_gl_objects(struct Game *game) {
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); 
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, game->color_map.width, game->color_map.height, 0, GL_RGB, GL_UNSIGNED_BYTE, game->color_map.pixels);
-  
+
   glGenTextures(1, &gl->height_map_tex_id);
   glBindTexture(GL_TEXTURE_2D, gl->height_map_tex_id);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); 
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, game->height_map.width, game->height_map.height, 0, GL_RED, GL_UNSIGNED_BYTE, game->height_map.pixels); 
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, game->height_map.width, game->height_map.height, 0, GL_RED, GL_UNSIGNED_BYTE, game->height_map.pixels);
 
   char *model_vertex_shader_source = read_file("src/shaders/model_view.vert");
   assert(model_vertex_shader_source != NULL);
@@ -330,15 +356,15 @@ static void create_gl_objects(struct Game *game) {
   gl->poly_shader_program = create_shader(model_vertex_shader_source, get_color_fragment_shader_source);
   free(model_vertex_shader_source);
   free(get_color_fragment_shader_source);
-  assert(gl->poly_shader_program);    
+  assert(gl->poly_shader_program);
 
   int32_t num_map_vertices = (game->height_map.width * game->height_map.height);
   V3 *map_vertices = malloc(sizeof(V3) * num_map_vertices);
 
   int32_t indices_per_vert = 6;
   int32_t num_indices = 0;
-  
-  // NOTE: allocating slightly more space than we need since we don't generate 
+
+  // NOTE: allocating slightly more space than we need since we don't generate
   // indices for the final row and column
   int32_t *index_buffer = malloc(sizeof(int32_t) * num_map_vertices * indices_per_vert);
 
@@ -354,7 +380,7 @@ static void create_gl_objects(struct Game *game) {
       }
 
       int32_t i_index = v_index * indices_per_vert;
-      
+
       index_buffer[i_index] = v_index;
       index_buffer[i_index + 1] = v_index + game->height_map.width;
       index_buffer[i_index + 2] = v_index + 1;
@@ -385,7 +411,7 @@ static void create_gl_objects(struct Game *game) {
 	glBindBuffer(GL_ARRAY_BUFFER, gl->map_vbo);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gl->map_vbo_indices);
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-	glEnableVertexAttribArray(0); 
+	glEnableVertexAttribArray(0);
 }
 
 
@@ -403,7 +429,7 @@ static int32_t load_assets(struct Game *game) {
     error(stbi_failure_reason());
     error("Could not load height map");
     return GAME_ERROR;
-  }            
+  }
 
   return GAME_SUCCESS;
 }
@@ -417,7 +443,7 @@ static void create_frame_buffer(struct Game *game, int32_t width, int32_t height
   game->frame.clip_right_x = game->frame.width,
   game->frame.y_buffer = malloc(game->frame.width * sizeof(int32_t));
   game->frame.pixels = malloc(game->frame.width * game->frame.height * sizeof(uint8_t) * 4);
-  game->frame.pitch = game->frame.width * sizeof(uint32_t); 
+  game->frame.pitch = game->frame.width * sizeof(uint32_t);
 }
 
 int32_t game_init(struct Game *game, int32_t width, int32_t height) {
@@ -434,7 +460,7 @@ int32_t game_init(struct Game *game, int32_t width, int32_t height) {
 
   create_frame_buffer(game, width, height);
 
-  game->camera = (struct Camera) { 
+  game->camera = (struct Camera) {
     .viewport_width = width,
     .viewport_height = height,
     .distance = 800,

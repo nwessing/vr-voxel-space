@@ -6,12 +6,12 @@
 #endif
 
 #include "assert.h"
+#include "game.h"
+#include "platform.h"
+#include "stdarg.h"
 #include "stdbool.h"
 #include "stdio.h"
 #include "types.h"
-#include "game.h"
-#include "stdarg.h"
-#include "platform.h"
 #include "util.h"
 
 #define INITIAL_SCREEN_WIDTH 800
@@ -36,22 +36,26 @@ int info(const char *format, ...) {
 }
 
 int main(void) {
-  if(SDL_Init(SDL_INIT_VIDEO) < 0 ) {
-      error("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
-      return 1;
+  if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+    error("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
+    return 1;
   }
 
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS,
+                      SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
   SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
   SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
 
-  SDL_Window *window = SDL_CreateWindow("VR Voxel Space", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, INITIAL_SCREEN_WIDTH, INITIAL_SCREEN_HEIGHT, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
-  if(window == NULL) {
-      error("Window could not be created! SDL_Error: %s\n", SDL_GetError());
-      return 1;
+  SDL_Window *window = SDL_CreateWindow(
+      "VR Voxel Space", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+      INITIAL_SCREEN_WIDTH, INITIAL_SCREEN_HEIGHT,
+      SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
+  if (window == NULL) {
+    error("Window could not be created! SDL_Error: %s\n", SDL_GetError());
+    return 1;
   }
 
   SDL_GLContext gl_context = SDL_GL_CreateContext(window);
@@ -63,23 +67,22 @@ int main(void) {
 
   SDL_GL_MakeCurrent(window, gl_context);
 
-	if (!gladLoadGLLoader((GLADloadproc) SDL_GL_GetProcAddress))
-	{
-		error("Failed to initialize GLAD\n");
-		return 1;
-	}
+  if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
+    error("Failed to initialize GLAD\n");
+    return 1;
+  }
 
-	SDL_SetRelativeMouseMode(SDL_TRUE);
+  SDL_SetRelativeMouseMode(SDL_TRUE);
 
   error("%s\n", glGetString(GL_VERSION));
 
-	sdl_error = SDL_GetError();
+  sdl_error = SDL_GetError();
   if (*sdl_error != '\0') {
     error("ERROR: %s\n", sdl_error);
-    //return 1;
+    // return 1;
   }
 
-	assert(glGetError() == GL_NO_ERROR);
+  assert(glGetError() == GL_NO_ERROR);
 
   info("Game data struct is %lu bytes\n", sizeof(struct Game));
   struct Game *game = calloc(1, sizeof(struct Game));
@@ -87,6 +90,7 @@ int main(void) {
     return 1;
   }
 
+  SDL_GL_SetSwapInterval(0);
   info("PITCH: %i\n", game->frame.pitch);
 
   bool quit = false;
@@ -95,11 +99,12 @@ int main(void) {
   uint32_t time_begin = SDL_GetTicks();
 
   struct KeyboardState key_state = {0};
-  while (!quit)
-  {
+  while (!quit) {
     uint32_t time = SDL_GetTicks();
     if (time - time_begin >= 1000) {
-      info("%ix%i, FPS: %f\n", game->camera.viewport_width, game->camera.viewport_height, num_frames / ((time - time_begin) / (float) 1000));
+      info("%ix%i, FPS: %f\n", game->camera.viewport_width,
+           game->camera.viewport_height,
+           num_frames / ((time - time_begin) / (float)1000));
       num_frames = 0;
       time_begin = time;
     }
@@ -110,14 +115,14 @@ int main(void) {
     struct ControllerState left_controller = {0};
     struct ControllerState right_controller = {0};
     SDL_Event e;
-    while (SDL_PollEvent(&e) != 0)
-    {
+    while (SDL_PollEvent(&e) != 0) {
       if (e.type == SDL_QUIT ||
           (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_q)) {
         quit = true;
       }
 
-      if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_z && e.key.repeat == 0) {
+      if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_z &&
+          e.key.repeat == 0) {
         SDL_DisplayMode mode;
         if (SDL_GetDisplayMode(0, 0, &mode) == 0) {
           info("Display Mode: %ix%i\n", mode.w, mode.h);
@@ -125,14 +130,15 @@ int main(void) {
         }
 
         unsigned int flags = SDL_GetWindowFlags(window);
-        unsigned int new_mode = (flags & SDL_WINDOW_FULLSCREEN) == 0 ? SDL_WINDOW_FULLSCREEN : 0;
+        unsigned int new_mode =
+            (flags & SDL_WINDOW_FULLSCREEN) == 0 ? SDL_WINDOW_FULLSCREEN : 0;
         SDL_SetWindowFullscreen(window, new_mode);
       }
-      
+
       if ((e.type == SDL_KEYDOWN || e.type == SDL_KEYUP) && e.key.repeat == 0) {
-        int32_t key_index = e.key.keysym.sym - KEYBOAD_STATE_MIN_CHAR;  
+        int32_t key_index = e.key.keysym.sym - KEYBOAD_STATE_MIN_CHAR;
         if (key_index >= 0 && key_index <= KEYBOARD_STATE_NUM_KEYS) {
-          key_state.down[key_index] = e.type == SDL_KEYDOWN;  
+          key_state.down[key_index] = e.type == SDL_KEYDOWN;
         }
       }
 
@@ -144,14 +150,19 @@ int main(void) {
 
     update_game(game, &key_state, &left_controller, &right_controller, elapsed);
 #ifdef INCLUDE_LIBOVR
-    render_buffer_to_hmd(&vr, &game.frame, &gl, &color_map, &height_map, &camera, num_frames);
+    render_buffer_to_hmd(&vr, &game.frame, &gl, &color_map, &height_map,
+                         &camera, num_frames);
 #else
-    
+
     /* glBindFramebuffer(GL_FRAMEBUFFER, 0); */
-    SDL_GetWindowSize(window, &game->camera.viewport_width, &game->camera.viewport_height);
+    SDL_GetWindowSize(window, &game->camera.viewport_width,
+                      &game->camera.viewport_height);
 
     mat4 projection_matrix = GLM_MAT4_IDENTITY;
-    glm_perspective(glm_rad(90), game->camera.viewport_width/ (float) game->camera.viewport_height, 0.01f, 1000.0f, projection_matrix);
+    glm_perspective(glm_rad(90),
+                    game->camera.viewport_width /
+                        (float)game->camera.viewport_height,
+                    0.01f, 1000.0f, projection_matrix);
 
     render_game(game, projection_matrix);
 
@@ -162,12 +173,12 @@ int main(void) {
     num_frames++;
   }
 
-  //Destroy window
+  // Destroy window
   SDL_DestroyWindow(window);
   game_free(game);
   free(game);
 
-  //Quit SDL subsystems
+  // Quit SDL subsystems
   SDL_Quit();
 
   info("EXIT\n");
