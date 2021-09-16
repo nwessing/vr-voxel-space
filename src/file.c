@@ -3,7 +3,7 @@
 #include "platform.h"
 /* #include "file.h" */
 
-// Read a file into a char array, caller is responsible for 
+// Read a file into a char array, caller is responsible for
 // free() call
 char *read_file(const char *filename)
 {
