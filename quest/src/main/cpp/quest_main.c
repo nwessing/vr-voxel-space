@@ -389,7 +389,7 @@ static ovrLayerProjection2 renderer_render_frame(struct Game *game,
     game->camera.viewport_width = framebuffer->width;
     game->camera.viewport_height = framebuffer->height;
 
-    render_game(game, projection_matrix.M, view_matrix.M);
+    render_game(game, i == 0 ? EYE_LEFT : EYE_RIGHT, projection_matrix.M, view_matrix.M);
     /* glEnable(GL_CULL_FACE); */
     /* glEnable(GL_DEPTH_TEST); */
     /* glEnable(GL_SCISSOR_TEST); */

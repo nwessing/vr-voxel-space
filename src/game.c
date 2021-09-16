@@ -10,7 +10,6 @@
 #include "platform.h"
 #include "util.h"
 
-static float eye_distance = 0.0f;
 static inline void get_position_vector(struct Camera * camera, vec3 result) {
   // NOTE: Flip the z-axis so that x increases to the camera's right
   // matching the way the map appears in the image
@@ -46,7 +45,6 @@ static void get_forward_vector(struct Camera * camera, vec3 direction, bool only
 }
 
 static void render_real_3d(struct OpenGLData *gl, struct Camera *camera, mat4 in_projection_matrix, mat4 in_view_matrix) {
-  static int eye_mod = 0;
   glEnable(GL_DEPTH_TEST);
   glClearColor(0.529f, 0.808f, 0.98f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -124,45 +122,42 @@ static void render_buffer_to_gl(struct FrameBuffer *frame, struct OpenGLData *gl
   glDrawArrays(GL_TRIANGLES, 0, gl->vao_num_vertices);
 }
 
-void render_game(struct Game *game, mat4 projection, mat4 view_matrix) {
+void render_game(struct Game *game, enum Eye eye, mat4 projection, mat4 view_matrix) {
     glViewport(0, 0, game->camera.viewport_width, game->camera.viewport_height);
 
-    if (game->options.do_raycasting) {
-      memset(game->frame.pixels, 0, game->frame.height * game->frame.pitch);
-      if (game->options.render_stereo) {
-        for (int eye = 0; eye < 2; ++eye) {
-          struct FrameBuffer eye_buffer;
-          eye_buffer.width = game->frame.width / 2;
-          eye_buffer.height = game->frame.height;
-          eye_buffer.pitch = game->frame.pitch;
-          eye_buffer.y_buffer = &game->frame.y_buffer[eye * (eye_buffer.width / 2)];
-          eye_buffer.clip_left_x = eye == 0 ? 0 : game->camera.clip;
-          eye_buffer.clip_right_x = eye_buffer.width - (eye == 0 ? game->camera.clip : 0);
-          eye_buffer.pixels = eye == 0 ? game->frame.pixels : &game->frame.pixels[(eye_buffer.width - game->camera.clip * 2) * 4];
+    /* if (game->options.do_raycasting) { */
+    /*   memset(game->frame.pixels, 0, game->frame.height * game->frame.pitch); */
+    /*   if (game->options.render_stereo) { */
+    /*     for (int eye = 0; eye < 2; ++eye) { */
+    /*       struct FrameBuffer eye_buffer; */
+    /*       eye_buffer.width = game->frame.width / 2; */
+    /*       eye_buffer.height = game->frame.height; */
+    /*       eye_buffer.pitch = game->frame.pitch; */
+    /*       eye_buffer.y_buffer = &game->frame.y_buffer[eye * (eye_buffer.width / 2)]; */
+    /*       eye_buffer.clip_left_x = eye == 0 ? 0 : game->camera.clip; */
+    /*       eye_buffer.clip_right_x = eye_buffer.width - (eye == 0 ? game->camera.clip : 0); */
+    /*       eye_buffer.pixels = eye == 0 ? game->frame.pixels : &game->frame.pixels[(eye_buffer.width - game->camera.clip * 2) * 4]; */
 
-          int eye_mod = eye == 1 ? 1 : -1;
-          int eye_dist = 3;
-          struct Camera eye_cam = game->camera;
-          eye_cam.position_x += (int)(eye_mod * eye_dist * sin(eye_cam.pitch + (M_PI / 2)));
-          eye_cam.position_y += (int)(eye_mod * eye_dist * cos(eye_cam.pitch + (M_PI / 2)));
+    /*       int eye_mod = eye == 1 ? 1 : -1; */
+    /*       int eye_dist = 3; */
+    /*       struct Camera eye_cam = game->camera; */
+    /*       eye_cam.position_x += (int)(eye_mod * eye_dist * sin(eye_cam.pitch + (M_PI / 2))); */
+    /*       eye_cam.position_y += (int)(eye_mod * eye_dist * cos(eye_cam.pitch + (M_PI / 2))); */
 
-          render(&eye_buffer, &game->color_map, &game->height_map, &eye_cam);
-        }
-      } else {
-        render(&game->frame, &game->color_map, &game->height_map, &game->camera);
-      }
+    /*       render(&eye_buffer, &game->color_map, &game->height_map, &eye_cam); */
+    /*     } */
+    /*   } else { */
+    /*     render(&game->frame, &game->color_map, &game->height_map, &game->camera); */
+    /*   } */
 
-      render_buffer_to_gl(&game->frame, &game->gl, game->camera.clip);
-    } else {
-          static int eye_mod = -1;
-          int eye_dist = eye_distance;
-          struct Camera eye_cam = game->camera;
-          eye_cam.position_x += (int)(eye_mod * eye_dist * sin(eye_cam.pitch + (M_PI / 2)));
-          eye_cam.position_y += (int)(eye_mod * eye_dist * cos(eye_cam.pitch + (M_PI / 2)));
-          eye_mod = eye_mod == -1 ? 1 : -1;
-
-      render_real_3d(&game->gl, &eye_cam, projection, view_matrix);
-    }
+    /*   render_buffer_to_gl(&game->frame, &game->gl, game->camera.clip); */
+    /* } else { */
+    int eye_dist = game->options.eye_distance;
+    struct Camera eye_cam = game->camera;
+    eye_cam.position_x += (eye * -eye_dist * sin(eye_cam.pitch + (M_PI / 2)));
+    eye_cam.position_y += (eye * -eye_dist * cos(eye_cam.pitch + (M_PI / 2)));
+    render_real_3d(&game->gl, &eye_cam, projection, view_matrix);
+    /* } */
 }
 
 static inline bool is_key_pressed(struct KeyboardState *keyboard, int32_t key) {
@@ -218,11 +213,15 @@ void update_game(struct Game *game,
   }
 
   if (game->controller[LEFT_CONTROLLER_INDEX].trigger >= 0.5f) {
-    eye_distance -= 1.0f * elapsed;
+    game->options.eye_distance -= 1.0f * elapsed;
   }
 
   if (game->controller[RIGHT_CONTROLLER_INDEX].trigger >= 0.5f) {
-    eye_distance += 1.0f * elapsed;
+    game->options.eye_distance += 1.0f * elapsed;
+  }
+
+  if (game->options.eye_distance < 0.0f) {
+    game->options.eye_distance = 0.0f;
   }
 
   float rotation_movement = read_axis(
@@ -460,6 +459,7 @@ int32_t game_init(struct Game *game, int32_t width, int32_t height) {
 
   create_frame_buffer(game, width, height);
 
+  game->options.eye_distance = 1.0;
   game->camera = (struct Camera) {
     .viewport_width = width,
     .viewport_height = height,
@@ -472,7 +472,7 @@ int32_t game_init(struct Game *game, int32_t width, int32_t height) {
     .position_y = 54,
     .position_height = 200.0f,
     .clip = .06f * game->frame.width,
-    .is_z_relative_to_ground = true
+    .is_z_relative_to_ground = false
   };
 
   create_gl_objects(game);

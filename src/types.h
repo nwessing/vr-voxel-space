@@ -1,6 +1,6 @@
 #pragma once
-#include "stdint.h"
 #include "game_gl.h"
+#include "stdint.h"
 #include <cglm/cglm.h>
 
 #define GAME_SUCCESS 0
@@ -69,36 +69,39 @@ struct OpenGLData {
 struct GameOptions {
   bool do_raycasting;
   bool render_stereo;
+  float eye_distance;
 };
 
 // NOTE: Represent states of all keys for ASCII codes 32-127
 #define KEYBOAD_STATE_MIN_CHAR 32
 #define KEYBOARD_STATE_MAX_CHAR 127
 
-#define KEYBOARD_STATE_NUM_KEYS KEYBOARD_STATE_MAX_CHAR - KEYBOAD_STATE_MIN_CHAR + 1
+#define KEYBOARD_STATE_NUM_KEYS                                                \
+  KEYBOARD_STATE_MAX_CHAR - KEYBOAD_STATE_MIN_CHAR + 1
 struct KeyboardState {
-  bool down[KEYBOARD_STATE_NUM_KEYS];  
+  bool down[KEYBOARD_STATE_NUM_KEYS];
 };
 
-// -1.0 to 1.0 
+// -1.0 to 1.0
 // for both x and y
 struct Vec2 {
-  float x;    
-  float y;    
+  float x;
+  float y;
 };
 
 struct ControllerState {
   struct Vec2 joy_stick;
-  
+
   // 0.0 to 1.0
-  float trigger; 
-  
+  float trigger;
+
   // 0.0 to 1.0
-  float grip; 
+  float grip;
   bool primary_button;
   bool secondary_button;
 };
 
+enum Eye { EYE_LEFT = -1, EYE_RIGHT = 1 };
 
 #define LEFT_CONTROLLER_INDEX 0
 #define RIGHT_CONTROLLER_INDEX 1

@@ -10,3 +10,5 @@ vr-voxel-space
 obj/
 quest/build
 bin/
+.cache/
+compile_commands.json
