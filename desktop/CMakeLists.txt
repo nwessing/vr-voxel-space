@@ -16,6 +16,11 @@ add_executable(game
             ${CMAKE_SOURCE_DIR}/../src/shader.c
             ${CMAKE_SOURCE_DIR}/../src/util.c
             )
+if (MSVC)
+	target_compile_options(game PRIVATE /W4 /WX /O2)
+else()
+	target_compile_options(game PRIVATE -Wall -Wextra -pedantic -Werror=implicit-function-declaration -O2)
+endif()
 
 find_package(SDL2 REQUIRED)
 include_directories(${SDL2_INCLUDE_DIRS})

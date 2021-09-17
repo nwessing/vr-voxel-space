@@ -1,4 +1,8 @@
-#version 330 core
+#ifdef OPENGL_ES
+  precision highp float;
+  precision highp int;
+#endif
+
 layout (location = 0) in vec3 aPos;
 
 out vec3 Position;

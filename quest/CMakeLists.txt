@@ -23,6 +23,11 @@ add_library(main
             ${CMAKE_SOURCE_DIR}/../src/shader.c
             ${CMAKE_SOURCE_DIR}/../src/util.c
             )
+if (MSVC)
+	target_compile_options(main PRIVATE /W4 /WX /O2)
+else()
+	target_compile_options(main PRIVATE -Wall -Wextra -pedantic -Werror=implicit-function-declaration -O2)
+endif()
 
 find_library(EGL_path EGL)
 find_library(android_path android)
@@ -56,7 +61,7 @@ add_custom_command(TARGET main
 	# Copy assets for apk bundling
 	COMMAND mkdir -p assets/ assets/src assets/src/shaders
 	COMMAND cp ${CMAKE_SOURCE_DIR}/../*.png assets/
-	COMMAND cp ${CMAKE_SOURCE_DIR}/../src/es_shaders/* assets/src/shaders/
+	COMMAND cp ${CMAKE_SOURCE_DIR}/../src/shaders/* assets/src/shaders/
 
 	# Create apk
 	COMMAND ${AAPT}

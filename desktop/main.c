@@ -165,7 +165,7 @@ int main(void) {
                     0.01f, 1000.0f, projection_matrix);
 
     mat4 view_matrix = GLM_MAT4_IDENTITY;
-    render_game(game, projection_matrix, &view_matrix);
+    render_game(game, EYE_LEFT, projection_matrix, &view_matrix);
 
     SDL_GL_SwapWindow(window);
 

@@ -9,6 +9,9 @@ static int android_read(void* cookie, char* buf, int size) {
 }
 
 static int android_write(void* cookie, const char* buf, int size) {
+  (void) cookie;
+  (void) buf;
+  (void) size;
   return EACCES; // can't provide write access to the apk
 }
 

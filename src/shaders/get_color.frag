@@ -1,4 +1,8 @@
-#version 330 core
+#ifdef OPENGL_ES
+  precision highp float;
+  precision highp int;
+#endif
+
 out vec4 FragColor;
 
 in vec3 Position;
@@ -6,8 +10,7 @@ in vec3 Position;
 uniform sampler2D colorMap;
 
 void main()
-{ 
+{
   ivec2 tex_size = textureSize(colorMap, 0);
-  vec2 floored = vec2(ceil(Position.x), ceil(Position.y));
-  FragColor = texture(colorMap, Position.xy / tex_size);
+  FragColor = texture(colorMap, Position.xy / vec2(tex_size));
 }

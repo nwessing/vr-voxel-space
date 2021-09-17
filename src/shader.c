@@ -3,8 +3,7 @@
 #include "platform.h"
 #include "game_gl.h"
 
-static int32_t check_shader_compile_errors(uint32_t shader)
-{
+static int32_t check_shader_compile_errors(uint32_t shader) {
     int32_t success;
 
     glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
@@ -18,8 +17,7 @@ static int32_t check_shader_compile_errors(uint32_t shader)
     return success;
 }
 
-static int32_t check_program_link_errors(uint32_t program)
-{
+static int32_t check_program_link_errors(uint32_t program) {
     int32_t success;
     char info_log[512];
 
@@ -32,10 +30,19 @@ static int32_t check_program_link_errors(uint32_t program)
     return success;
 }
 
-uint32_t compile_shader(int32_t shader_type, const char *shader_source)
-{
+uint32_t compile_shader(int32_t shader_type, const char *shader_source) {
+#ifdef GL_ES_VERSION_3_0
+    char *version_line = "#version 310 es\n#define OPENGL_ES\n";
+#else
+    char *version_line = "#version 330 core\n";
+#endif
+
+    const char *sources[] = {
+        version_line,
+        shader_source
+    };
     uint32_t shader = glCreateShader(shader_type);
-    glShaderSource(shader, 1, &shader_source, NULL);
+    glShaderSource(shader, sizeof(sources) / sizeof(sources[0]), sources, NULL);
     glCompileShader(shader);
     if (!check_shader_compile_errors(shader)) {
         return 0;
@@ -45,8 +52,7 @@ uint32_t compile_shader(int32_t shader_type, const char *shader_source)
 }
 
 
-uint32_t create_shader(const char *vertex_source, const char *fragment_source)
-{
+uint32_t create_shader(const char *vertex_source, const char *fragment_source) {
     uint32_t vertex_shader = compile_shader(GL_VERTEX_SHADER, vertex_source);
     if (!vertex_shader) {
         return 0;
