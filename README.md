@@ -18,6 +18,7 @@ See the releases for an APK you can install onto your Oculus Quest if you want t
 | ------------- |-------------          |
 | Analog Stick  | Move and strafe       |
 | X             | Toggle camera height auto adjusts to terrain|
+| Left Trigger  | Decrease world size |
 
 ## Right Controller
 | Input         | Action                | 
@@ -25,6 +26,7 @@ See the releases for an APK you can install onto your Oculus Quest if you want t
 | Analog Stick  | Rotate left/right     |
 | A             | Move down             |
 | B             | Move up               |
+| Right Trigger | Increase world size|
 
 
 ## Building

@@ -121,7 +121,7 @@ int main(void) {
         quit = true;
       }
 
-      if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_z &&
+      if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_g &&
           e.key.repeat == 0) {
         SDL_DisplayMode mode;
         if (SDL_GetDisplayMode(0, 0, &mode) == 0) {

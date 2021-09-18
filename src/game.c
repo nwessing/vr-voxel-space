@@ -11,6 +11,8 @@
 #include "platform.h"
 #include "util.h"
 
+static vec3 CAMERA_TO_TERRAIN = { 1024.0, 255.0, 1024.0 };
+
 // Find the direction vector indicating where the camera is pointing
 static void get_forward_vector(struct Camera * camera, vec3 direction, bool only_use_pitch, vec3 result) {
   versor user_rotation;
@@ -43,6 +45,8 @@ static void render_real_3d(struct OpenGLData *gl, struct Camera *camera, mat4 in
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
   vec3 camera_offset = {-camera->position_x, -camera->position_y, -camera->position_z};
+  glm_vec3_mul(camera_offset, CAMERA_TO_TERRAIN, camera_offset);
+  glm_vec3_scale(camera_offset, camera->terrain_scale, camera_offset);
 
   mat4 view_matrix = GLM_MAT4_IDENTITY_INIT;
   glm_rotate(view_matrix, -camera->pitch, (vec3) {0.0, 1.0, 0.0});
@@ -67,6 +71,7 @@ static void render_real_3d(struct OpenGLData *gl, struct Camera *camera, mat4 in
 
 
     mat4 model = GLM_MAT4_IDENTITY_INIT;
+    glm_scale(model, (vec3) {camera->terrain_scale, camera->terrain_scale, camera->terrain_scale});
     vec4 translate = {x * 1024.0f, 0.0f, z * 1024.0f};
     glm_translate(model, translate);
     mat4 mvp = GLM_MAT4_IDENTITY_INIT;
@@ -155,6 +160,10 @@ static inline float read_axis(float joystick_axis, bool negative_key_pressed, bo
   return clamp(result, -1.0f, 1.0f);
 }
 
+static inline float get_ground_height(struct ImageBuffer *height_map, float x, float y) {
+  return get_image_grey(height_map, x, y) / 255.0f;
+}
+
 void update_game(struct Game *game,
                  struct KeyboardState *keyboard,
                  struct ControllerState *left_controller,
@@ -195,14 +204,14 @@ void update_game(struct Game *game,
     game->camera.is_z_relative_to_ground = !game->camera.is_z_relative_to_ground;
   }
 
-  float prev_ground_height = get_image_grey(&game->height_map, game->camera.position_x, game->camera.position_z);
+  float prev_ground_height = get_ground_height(&game->height_map, game->camera.position_x, game->camera.position_z);
   vec3 direction_intensities = {horizontal_movement, vertical_movement, -forward_movement};
   vec3 movement;
   {
     vec3 forward;
     get_forward_vector(&game->camera, direction_intensities, true, forward);
 
-    float units_per_second = 250.0f;
+    float units_per_second = 0.25f;
     float delta_units = units_per_second * elapsed;
     glm_vec3_scale(forward, delta_units, movement);
     glm_vec3_clamp(movement, -delta_units, delta_units);
@@ -215,9 +224,9 @@ void update_game(struct Game *game,
   game->camera.pitch += -rotation_movement * M_PI * (right_controller->scale_rotation_by_time ? elapsed : 1.0f);
 
   if (game->camera.is_z_relative_to_ground) {
-    float ground_height = get_image_grey(&game->height_map, game->camera.position_x, game->camera.position_z);
+    float ground_height = get_ground_height(&game->height_map, game->camera.position_x, game->camera.position_z);
     float ground_height_diff = ground_height - prev_ground_height;
-    game->camera.position_y = clamp(game->camera.position_y + ground_height_diff, ground_height + 1, 10000.0f);
+    game->camera.position_y = clamp(game->camera.position_y + ground_height_diff, ground_height, 10000.0f);
   }
 
   while (game->camera.pitch >= 2 * M_PI) {
@@ -228,20 +237,32 @@ void update_game(struct Game *game,
     game->camera.pitch += 2 * M_PI;
   }
 
-  while (game->camera.position_x >= game->height_map.width) {
-    game->camera.position_x -= game->height_map.width;
+  while (game->camera.position_x >= 1.0) {
+    game->camera.position_x -= 1.0;
   }
 
-  while (game->camera.position_z >= game->height_map.height) {
-    game->camera.position_z -= game->height_map.height;
+  while (game->camera.position_z >= 1.0) {
+    game->camera.position_z -= 1.0;
   }
 
   while (game->camera.position_x < 0) {
-    game->camera.position_x += game->height_map.width;
+    game->camera.position_x += 1.0;
   }
 
   while (game->camera.position_z < 0) {
-    game->camera.position_z += game->height_map.height;
+    game->camera.position_z += 1.0;
+  }
+
+
+  if (is_key_pressed(&game->keyboard, 'z') || game->controller[LEFT_CONTROLLER_INDEX].trigger > 0.95f) {
+    // 50% per second
+    float half = game->camera.terrain_scale / 2.0f;
+    game->camera.terrain_scale -= half * elapsed;
+  }
+  else if (is_key_pressed(&game->keyboard, 'x') || game->controller[RIGHT_CONTROLLER_INDEX].trigger > 0.95f) {
+    // 50% per second
+    float half = game->camera.terrain_scale / 2.0f;
+    game->camera.terrain_scale += half * elapsed;
   }
 }
 
@@ -331,7 +352,7 @@ static void create_gl_objects(struct Game *game) {
     for (int32_t x = 0; x < game->height_map.width; x++) {
       int32_t v_index = ((y * game->height_map.width) + x);
       map_vertices[v_index][0] = x;
-      map_vertices[v_index][1] = ((int32_t) get_image_grey(&game->height_map, x, y)) / 255.0f;
+      map_vertices[v_index][1] = (float) get_image_grey(&game->height_map, x, y);
       map_vertices[v_index][2] = y;
 
       if (x >= game->height_map.width - 1 || y >= game->height_map.height - 1) {
@@ -425,9 +446,10 @@ int32_t game_init(struct Game *game, int32_t width, int32_t height) {
     .pitch = M_PI,
     .horizon = game->frame.height / 2,
     .scale_height = game->frame.height * 0.35,
-    .position_x = 436,
-    .position_z = 54,
-    .position_y = 200.0f,
+    .position_x = 436.0 / 1024.0,
+    .position_z = 54 / 1024.0,
+    .position_y = 200.0f / 255.0,
+    .terrain_scale = 0.5f,
     .clip = .06f * game->frame.width,
     .is_z_relative_to_ground = false
   };

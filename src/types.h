@@ -45,6 +45,7 @@ struct Camera {
   float position_x;
   float position_z;
   float position_y;
+  float terrain_scale;
   int32_t clip;
   bool is_z_relative_to_ground;
 };
