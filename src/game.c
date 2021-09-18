@@ -51,13 +51,13 @@ static void render_real_3d(struct OpenGLData *gl, struct Camera *camera, mat4 in
   glm_mat4_mul(in_view_matrix, view_matrix, view_matrix);
 
   glUseProgram(gl->poly_shader_program);
-	glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "view"), 1, GL_FALSE, (float *) view_matrix);
-	glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "projection"), 1, GL_FALSE, (float *) in_projection_matrix);
   glBindVertexArray(gl->map_vao);
 
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, gl->color_map_tex_id);
 
+  mat4 projection_view = GLM_MAT4_IDENTITY_INIT;
+  glm_mat4_mul(in_projection_matrix, view_matrix, projection_view);
 
   // TODO: rendering 9 big meshes is too slow on quest, need to find a more efficient way to do this.
   /* for (int32_t i = 0; i < 9; ++i) { */
@@ -69,7 +69,9 @@ static void render_real_3d(struct OpenGLData *gl, struct Camera *camera, mat4 in
     mat4 model = GLM_MAT4_IDENTITY_INIT;
     vec4 translate = {x * 1024.0f, 0.0f, z * 1024.0f};
     glm_translate(model, translate);
-    glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "model"), 1, GL_FALSE, (float *) model);
+    mat4 mvp = GLM_MAT4_IDENTITY_INIT;
+    glm_mat4_mul(projection_view, model, mvp);
+    glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "mvp"), 1, GL_FALSE, (float *) mvp);
     glDrawElements(GL_TRIANGLES, gl->num_map_vbo_indices, GL_UNSIGNED_INT, (void*)0);
   }
 }
