@@ -1,3 +1,4 @@
+#include "cglm/affine.h"
 #include "types.h"
 #include "game.h"
 #include "math.h"
@@ -10,18 +11,10 @@
 #include "platform.h"
 #include "util.h"
 
-static inline void get_position_vector(struct Camera * camera, vec3 result) {
-  // NOTE: Flip the z-axis so that x increases to the camera's right
-  // matching the way the map appears in the image
-  vec3 position = {camera->position_x, camera->position_y, -camera->position_height};
-  glm_vec3_copy(position, result);
-}
-
 // Find the direction vector indicating where the camera is pointing
 static void get_forward_vector(struct Camera * camera, vec3 direction, bool only_use_pitch, vec3 result) {
-
   versor user_rotation;
-  glm_quat(user_rotation, camera->pitch, 0, 0, -1);
+  glm_quat(user_rotation, camera->pitch, 0, 1, 0);
 
   mat4 rotate = GLM_MAT4_IDENTITY_INIT;
   glm_quat_rotate(rotate, user_rotation, rotate);
@@ -33,7 +26,7 @@ static void get_forward_vector(struct Camera * camera, vec3 direction, bool only
     vec3 euler_angles;
     glm_euler_angles(cam_rotation, euler_angles);
     euler_angles[0] = 0;
-    euler_angles[1] = 0;
+    euler_angles[2] = 0;
     glm_euler(euler_angles, cam_rotation);
 
     glm_mat4_mul(rotate, cam_rotation, rotate);
@@ -49,29 +42,13 @@ static void render_real_3d(struct OpenGLData *gl, struct Camera *camera, mat4 in
   glClearColor(0.529f, 0.808f, 0.98f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-  vec3 position;
-  get_position_vector(camera, position);
+  vec3 camera_offset = {-camera->position_x, -camera->position_y, -camera->position_z};
 
-  /* versor user_rotation; */
-  /* glm_quat(user_rotation, camera->pitch, 0, 0, -1); */
-  /* mat4 view_matrix = GLM_MAT4_IDENTITY_INIT; */
-  /* glm_quat_mat4(camera->quat, view_matrix); */
-  /* glm_translate(view_matrix, position); */
+  mat4 view_matrix = GLM_MAT4_IDENTITY_INIT;
+  glm_rotate(view_matrix, -camera->pitch, (vec3) {0.0, 1.0, 0.0});
+  glm_translate(view_matrix, camera_offset);
 
-  /* glm_mat4_mul(in_view_matrix, view_matrix, view_matrix); */
-
-
-  // Forward is +y direction.
-  vec3 dir = {0, 1, 0};
-  vec3 forward;
-  get_forward_vector(camera, dir, false, forward);
-
-  vec3 center;
-  glm_vec3_add(position, forward, center);
-
-  vec3 up = {0.0, 0.0, -1.0};
-  mat4 view_matrix = GLM_MAT4_IDENTITY;
-  glm_lookat(position, center, up, view_matrix);
+  glm_mat4_mul(in_view_matrix, view_matrix, view_matrix);
 
   glUseProgram(gl->poly_shader_program);
 	glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "view"), 1, GL_FALSE, (float *) view_matrix);
@@ -86,11 +63,11 @@ static void render_real_3d(struct OpenGLData *gl, struct Camera *camera, mat4 in
   /* for (int32_t i = 0; i < 9; ++i) { */
   for (int32_t i = 4; i < 5; ++i) {
     int32_t x = (i / 3) - 1;
-    int32_t y = (i % 3) - 1;
+    int32_t z = (i % 3) - 1;
 
 
-    mat4 model = GLM_MAT4_IDENTITY;
-    vec4 translate = {x * 1024.0f, y * 1024.0f, 0.0};
+    mat4 model = GLM_MAT4_IDENTITY_INIT;
+    vec4 translate = {x * 1024.0f, 0.0f, z * 1024.0f};
     glm_translate(model, translate);
     glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "model"), 1, GL_FALSE, (float *) model);
     glDrawElements(GL_TRIANGLES, gl->num_map_vbo_indices, GL_UNSIGNED_INT, (void*)0);
@@ -122,7 +99,7 @@ static void render_buffer_to_gl(struct FrameBuffer *frame, struct OpenGLData *gl
   glDrawArrays(GL_TRIANGLES, 0, gl->vao_num_vertices);
 }
 
-void render_game(struct Game *game, enum Eye eye, mat4 projection, mat4 view_matrix) {
+void render_game(struct Game *game, mat4 projection, mat4 view_matrix) {
     glViewport(0, 0, game->camera.viewport_width, game->camera.viewport_height);
 
     /* if (game->options.do_raycasting) { */
@@ -152,11 +129,7 @@ void render_game(struct Game *game, enum Eye eye, mat4 projection, mat4 view_mat
 
     /*   render_buffer_to_gl(&game->frame, &game->gl, game->camera.clip); */
     /* } else { */
-    int eye_dist = game->options.eye_distance;
-    struct Camera eye_cam = game->camera;
-    eye_cam.position_x += (eye * -eye_dist * sin(eye_cam.pitch + (M_PI / 2)));
-    eye_cam.position_y += (eye * -eye_dist * cos(eye_cam.pitch + (M_PI / 2)));
-    render_real_3d(&game->gl, &eye_cam, projection, view_matrix);
+    render_real_3d(&game->gl, &game->camera, projection, view_matrix);
     /* } */
 }
 
@@ -212,18 +185,6 @@ void update_game(struct Game *game,
     vertical_movement += 1.0f;
   }
 
-  if (game->controller[LEFT_CONTROLLER_INDEX].trigger >= 0.5f) {
-    game->options.eye_distance -= 1.0f * elapsed;
-  }
-
-  if (game->controller[RIGHT_CONTROLLER_INDEX].trigger >= 0.5f) {
-    game->options.eye_distance += 1.0f * elapsed;
-  }
-
-  if (game->options.eye_distance < 0.0f) {
-    game->options.eye_distance = 0.0f;
-  }
-
   float rotation_movement = read_axis(
       game->controller[RIGHT_CONTROLLER_INDEX].joy_stick.x, false, false);
 
@@ -232,13 +193,10 @@ void update_game(struct Game *game,
     game->camera.is_z_relative_to_ground = !game->camera.is_z_relative_to_ground;
   }
 
-  float prev_ground_height = get_image_grey(&game->height_map, game->camera.position_x, game->camera.position_y);
-  vec3 direction_intensities = (vec3) {-horizontal_movement, forward_movement, vertical_movement};
+  float prev_ground_height = get_image_grey(&game->height_map, game->camera.position_x, game->camera.position_z);
+  vec3 direction_intensities = {horizontal_movement, vertical_movement, -forward_movement};
   vec3 movement;
   {
-    vec3 position;
-    get_position_vector(&game->camera, position);
-
     vec3 forward;
     get_forward_vector(&game->camera, direction_intensities, true, forward);
 
@@ -250,14 +208,14 @@ void update_game(struct Game *game,
 
   game->camera.position_x += movement[0];
   game->camera.position_y += movement[1];
-  game->camera.position_height += movement[2];
+  game->camera.position_z += movement[2];
 
-  game->camera.pitch += -rotation_movement * M_PI * elapsed;
+  game->camera.pitch += -rotation_movement * M_PI * (right_controller->scale_rotation_by_time ? elapsed : 1.0f);
 
   if (game->camera.is_z_relative_to_ground) {
-    float ground_height = get_image_grey(&game->height_map, game->camera.position_x, game->camera.position_y);
+    float ground_height = get_image_grey(&game->height_map, game->camera.position_x, game->camera.position_z);
     float ground_height_diff = ground_height - prev_ground_height;
-    game->camera.position_height = clamp(game->camera.position_height + ground_height_diff, ground_height + 1, 10000.0f);
+    game->camera.position_y = clamp(game->camera.position_y + ground_height_diff, ground_height + 1, 10000.0f);
   }
 
   while (game->camera.pitch >= 2 * M_PI) {
@@ -272,16 +230,16 @@ void update_game(struct Game *game,
     game->camera.position_x -= game->height_map.width;
   }
 
-  while (game->camera.position_y >= game->height_map.height) {
-    game->camera.position_y -= game->height_map.height;
+  while (game->camera.position_z >= game->height_map.height) {
+    game->camera.position_z -= game->height_map.height;
   }
 
   while (game->camera.position_x < 0) {
     game->camera.position_x += game->height_map.width;
   }
 
-  while (game->camera.position_y < 0) {
-    game->camera.position_y += game->height_map.height;
+  while (game->camera.position_z < 0) {
+    game->camera.position_z += game->height_map.height;
   }
 }
 
@@ -371,8 +329,8 @@ static void create_gl_objects(struct Game *game) {
     for (int32_t x = 0; x < game->height_map.width; x++) {
       int32_t v_index = ((y * game->height_map.width) + x);
       map_vertices[v_index][0] = x;
-      map_vertices[v_index][1] = y;
-      map_vertices[v_index][2] = ((int32_t) get_image_grey(&game->height_map, x, y)) / 255.0f;
+      map_vertices[v_index][1] = ((int32_t) get_image_grey(&game->height_map, x, y)) / 255.0f;
+      map_vertices[v_index][2] = y;
 
       if (x >= game->height_map.width - 1 || y >= game->height_map.height - 1) {
         continue;
@@ -412,8 +370,6 @@ static void create_gl_objects(struct Game *game) {
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
 	glEnableVertexAttribArray(0);
 }
-
-
 
 static int32_t load_assets(struct Game *game) {
   game->color_map.pixels = stbi_load("C1W.png", &game->color_map.width, &game->color_map.height, &game->color_map.num_channels, 0);
@@ -459,18 +415,17 @@ int32_t game_init(struct Game *game, int32_t width, int32_t height) {
 
   create_frame_buffer(game, width, height);
 
-  game->options.eye_distance = 1.0;
   game->camera = (struct Camera) {
     .viewport_width = width,
     .viewport_height = height,
     .distance = 800,
     .quat = GLM_QUAT_IDENTITY_INIT,
-    .pitch = 0, //M_PI,
+    .pitch = M_PI,
     .horizon = game->frame.height / 2,
     .scale_height = game->frame.height * 0.35,
     .position_x = 436,
-    .position_y = 54,
-    .position_height = 200.0f,
+    .position_z = 54,
+    .position_y = 200.0f,
     .clip = .06f * game->frame.width,
     .is_z_relative_to_ground = false
   };

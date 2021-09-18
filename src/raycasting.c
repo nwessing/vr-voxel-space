@@ -42,9 +42,9 @@ void render(struct FrameBuffer *frame, struct ImageBuffer *color_map, struct Ima
   float delta_z = 1.0f;
   for (float z = 1; z < camera->distance; z += delta_z) {
     float a_point_left_x = (-cosphi * z - sinphi * z) + camera->position_x;
-    float a_point_left_y = (-cosphi * z + sinphi * z) + camera->position_y;
+    float a_point_left_y = (-cosphi * z + sinphi * z) + camera->position_z;
     float point_right_x = (cosphi * z - sinphi * z) + camera->position_x;
-    float point_right_y = (-cosphi * z - sinphi * z) + camera->position_y;
+    float point_right_y = (-cosphi * z - sinphi * z) + camera->position_z;
 
     float dx = (point_right_x - a_point_left_x) / (float) frame->width;
     float dy = (point_right_y - a_point_left_y) / (float) frame->width;
@@ -54,7 +54,7 @@ void render(struct FrameBuffer *frame, struct ImageBuffer *color_map, struct Ima
       float point_left_y = a_point_left_y + (x * dy);
 
       int terrain_height = get_image_grey(height_map, point_left_x, point_left_y);
-      int height_on_screen = ((float) (camera->position_height - terrain_height) / z) * camera->scale_height + camera->horizon;
+      int height_on_screen = ((float) (camera->position_y - terrain_height) / z) * camera->scale_height + camera->horizon;
 
       int y_start = frame->y_buffer[x];
       if (height_on_screen < y_start) {

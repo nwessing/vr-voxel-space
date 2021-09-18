@@ -43,8 +43,8 @@ struct Camera {
   int32_t horizon;
   int32_t scale_height;
   float position_x;
-  float position_y;
-  int32_t position_height;
+  float position_z;
+  int32_t position_y;
   int32_t clip;
   bool is_z_relative_to_ground;
 };
@@ -69,7 +69,6 @@ struct OpenGLData {
 struct GameOptions {
   bool do_raycasting;
   bool render_stereo;
-  float eye_distance;
 };
 
 // NOTE: Represent states of all keys for ASCII codes 32-127
@@ -99,9 +98,8 @@ struct ControllerState {
   float grip;
   bool primary_button;
   bool secondary_button;
+  bool scale_rotation_by_time;
 };
-
-enum Eye { EYE_LEFT = -1, EYE_RIGHT = 1 };
 
 #define LEFT_CONTROLLER_INDEX 0
 #define RIGHT_CONTROLLER_INDEX 1

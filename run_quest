@@ -1,0 +1,1 @@
+make -C quest/bin && adb install quest/bin/vr-voxel-space.apk && ./quest_start.sh

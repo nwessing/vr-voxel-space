@@ -17,7 +17,7 @@
 #define INITIAL_SCREEN_WIDTH 800
 #define INITIAL_SCREEN_HEIGHT 640
 
-#define MOUSE_SENSITIVITY 4.0f
+#define MOUSE_SENSITIVITY 0.001f
 
 int error(const char *format, ...) {
   va_list args;
@@ -143,8 +143,8 @@ int main(void) {
       }
 
       if (e.type == SDL_MOUSEMOTION) {
-        float rotation_intensity = e.motion.xrel * elapsed * MOUSE_SENSITIVITY;
-        right_controller.joy_stick.x = clamp(rotation_intensity, -1.0f, 1.0f);
+        right_controller.joy_stick.x = e.motion.xrel * MOUSE_SENSITIVITY;
+        right_controller.scale_rotation_by_time = false;
       }
     }
 
@@ -165,7 +165,8 @@ int main(void) {
                     0.01f, 1000.0f, projection_matrix);
 
     mat4 view_matrix = GLM_MAT4_IDENTITY;
-    render_game(game, EYE_LEFT, projection_matrix, &view_matrix);
+    glm_lookat((vec3) {0.0f, 0.0f, 0.0f}, (vec3) {0.0f, 0.0f, -1.0f}, (vec3) {0.0f, 1.0f, 0.0f}, view_matrix);
+    render_game(game, projection_matrix, view_matrix);
 
     SDL_GL_SwapWindow(window);
 

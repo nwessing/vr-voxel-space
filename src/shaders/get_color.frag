@@ -12,5 +12,5 @@ uniform sampler2D colorMap;
 void main()
 {
   ivec2 tex_size = textureSize(colorMap, 0);
-  FragColor = texture(colorMap, Position.xy / vec2(tex_size));
+  FragColor = texture(colorMap, Position.xz / vec2(tex_size));
 }

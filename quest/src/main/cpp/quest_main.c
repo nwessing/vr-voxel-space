@@ -389,7 +389,7 @@ static ovrLayerProjection2 renderer_render_frame(struct Game *game,
     game->camera.viewport_width = framebuffer->width;
     game->camera.viewport_height = framebuffer->height;
 
-    render_game(game, i == 0 ? EYE_LEFT : EYE_RIGHT, projection_matrix.M, view_matrix.M);
+    render_game(game, projection_matrix.M, view_matrix.M);
     /* glEnable(GL_CULL_FACE); */
     /* glEnable(GL_DEPTH_TEST); */
     /* glEnable(GL_SCISSOR_TEST); */
@@ -617,6 +617,8 @@ void android_main(struct android_app *android_app) {
   struct KeyboardState keyboard_state = {0};
   struct ControllerState left_controller = {0};
   struct ControllerState right_controller = {0};
+  right_controller.scale_rotation_by_time = true;
+
   double last_predicted_display_time = 0.0;
   while (!android_app->destroyRequested) {
     for (;;) {
@@ -652,15 +654,7 @@ void android_main(struct android_app *android_app) {
 
     ovrQuatf d_quat = tracking.HeadPose.Pose.Orientation;
 
-    // NOTE: https://gamedev.stackexchange.com/a/157954
-    // Converts the quaternion from the HMD axes to our world axes
-    //         | HMD | Game |
-    // forward | -z  |   y  |
-    // up      |  y  |  -z  |
-    // right   |  x  |  -x  |
-    versor quat;
-    glm_quat_init(quat, d_quat.x, d_quat.z, d_quat.y, -d_quat.w);
-    glm_quat_copy(quat, game->camera.quat);
+    glm_quat_init(game->camera.quat, d_quat.x, d_quat.y, d_quat.z, d_quat.w);
 
     // Don't update on first render
     if (last_predicted_display_time > 0) {
