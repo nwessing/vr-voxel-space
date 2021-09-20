@@ -158,13 +158,13 @@ int main(void) {
     SDL_GetWindowSize(window, &game->camera.viewport_width,
                       &game->camera.viewport_height);
 
-    mat4 projection_matrix = GLM_MAT4_IDENTITY;
+    mat4 projection_matrix = GLM_MAT4_IDENTITY_INIT;
     glm_perspective(glm_rad(90),
                     game->camera.viewport_width /
                         (float)game->camera.viewport_height,
                     0.01f, 1000.0f, projection_matrix);
 
-    mat4 view_matrix = GLM_MAT4_IDENTITY;
+    mat4 view_matrix = GLM_MAT4_IDENTITY_INIT;
     glm_lookat((vec3) {0.0f, 0.0f, 0.0f}, (vec3) {0.0f, 0.0f, -1.0f}, (vec3) {0.0f, 1.0f, 0.0f}, view_matrix);
     render_game(game, projection_matrix, view_matrix);
 

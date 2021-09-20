@@ -7,7 +7,7 @@ add_compile_definitions(INCLUDE_GLAD)
 include_directories(${CMAKE_SOURCE_DIR}/../src ${CMAKE_SOURCE_DIR}/../vendor/cglm/include)
 add_executable(game
             ${CMAKE_SOURCE_DIR}/main.c
-            ${CMAKE_SOURCE_DIR}/vr.c
+            # ${CMAKE_SOURCE_DIR}/vr.c
             ${CMAKE_SOURCE_DIR}/../src/glad/glad.c
             ${CMAKE_SOURCE_DIR}/../src/file.c
             ${CMAKE_SOURCE_DIR}/../src/game.c
@@ -19,7 +19,7 @@ add_executable(game
 if (MSVC)
 	target_compile_options(game PRIVATE /W4 /WX /O2)
 else()
-	target_compile_options(game PRIVATE -Wall -Wextra -pedantic -Werror=implicit-function-declaration -O2)
+  target_compile_options(game PRIVATE -Wall -Wextra -pedantic -Werror -Wno-error=unused-function -O2)
 endif()
 
 find_package(SDL2 REQUIRED)

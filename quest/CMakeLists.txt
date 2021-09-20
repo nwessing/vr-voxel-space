@@ -26,7 +26,7 @@ add_library(main
 if (MSVC)
 	target_compile_options(main PRIVATE /W4 /WX /O2)
 else()
-	target_compile_options(main PRIVATE -Wall -Wextra -pedantic -Werror=implicit-function-declaration -O2)
+	target_compile_options(main PRIVATE -Wall -Wextra -pedantic -Werror -Wno-error=format-pedantic -Wno-error=pedantic -Wno-error=unused-parameter -Wno-error=gnu-empty-initializer -Wno-error=unused-function -O2)
 endif()
 
 find_library(EGL_path EGL)
@@ -59,8 +59,8 @@ add_custom_command(TARGET main
 	COMMAND cp libmain.so lib/arm64-v8a/libmain.so
 
 	# Copy assets for apk bundling
-	COMMAND mkdir -p assets/ assets/src assets/src/shaders
-	COMMAND cp ${CMAKE_SOURCE_DIR}/../*.png assets/
+	COMMAND mkdir -p assets/ assets/src assets/src/shaders assets/maps/
+	COMMAND cp ${CMAKE_SOURCE_DIR}/../maps/* assets/maps/
 	COMMAND cp ${CMAKE_SOURCE_DIR}/../src/shaders/* assets/src/shaders/
 
 	# Create apk
@@ -76,6 +76,7 @@ add_custom_command(TARGET main
 	COMMAND ${AAPT} add vr-voxel-space.apk lib/arm64-v8a/libmain.so
 	COMMAND ${AAPT} add vr-voxel-space.apk lib/arm64-v8a/libvrapi.so
 	COMMAND ${AAPT} add vr-voxel-space.apk assets/*
+	COMMAND ${AAPT} add vr-voxel-space.apk assets/maps/*
 	COMMAND ${AAPT} add vr-voxel-space.apk assets/src/shaders/*
 
 	# Sign the APK

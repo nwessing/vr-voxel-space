@@ -56,15 +56,8 @@ struct OpenGLData {
   GLuint shader_program;
   GLuint vbo;
   GLuint vao;
-  GLuint map_vbo;
-  GLuint map_vbo_indices;
-  GLuint map_vao;
   GLuint tex_id;
-  GLuint color_map_tex_id;
-  GLuint height_map_tex_id;
   uint32_t vao_num_vertices;
-  uint32_t map_vao_num_vertices;
-  uint32_t num_map_vbo_indices;
 };
 
 struct GameOptions {
@@ -102,17 +95,36 @@ struct ControllerState {
   bool scale_rotation_by_time;
 };
 
+struct MapEntry {
+  char *color;
+  char *height;
+};
+
+struct Map {
+  struct ImageBuffer color_map;
+  struct ImageBuffer height_map;
+  GLuint map_vbo;
+  GLuint map_vbo_indices;
+  GLuint map_vao;
+  GLuint color_map_tex_id;
+  // GLuint height_map_tex_id;
+  uint32_t map_vao_num_vertices;
+  uint32_t num_map_vbo_indices;
+};
+
 #define LEFT_CONTROLLER_INDEX 0
 #define RIGHT_CONTROLLER_INDEX 1
+#define MAP_COUNT 30
 struct Game {
   struct GameOptions options;
   struct Camera camera;
-  struct ImageBuffer color_map;
-  struct ImageBuffer height_map;
+  int map_index;
+  struct Map maps[MAP_COUNT];
   struct FrameBuffer frame;
   struct OpenGLData gl;
   struct KeyboardState prev_keyboard;
   struct KeyboardState keyboard;
   struct ControllerState prev_controller[2];
   struct ControllerState controller[2];
+  bool trigger_set[2];
 };

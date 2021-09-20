@@ -8,9 +8,9 @@ out vec4 FragColor;
 in vec3 Position;
 
 uniform sampler2D colorMap;
+uniform ivec2 heightMapSize;
 
 void main()
 {
-  ivec2 tex_size = textureSize(colorMap, 0);
-  FragColor = texture(colorMap, Position.xz / vec2(tex_size));
+  FragColor = texture(colorMap, Position.xz / vec2(heightMapSize));
 }
