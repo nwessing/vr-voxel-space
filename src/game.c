@@ -108,8 +108,10 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
     glm_mat4_mul(projection_view, model, mvp);
     glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "mvp"), 1,
                        GL_FALSE, (float *)mvp);
-    glDrawElements(GL_TRIANGLES, map->num_map_vbo_indices, GL_UNSIGNED_INT,
-                   (void *)0);
+    glDrawElements(GL_TRIANGLES, map->lods[game->lod_index].num_indices,
+                   GL_UNSIGNED_INT,
+                   (void *)(uintptr_t)(map->lods[game->lod_index].offset *
+                                       sizeof(int32_t)));
   }
 }
 
@@ -186,6 +188,11 @@ static inline bool is_key_pressed(struct KeyboardState *keyboard, int32_t key) {
   return keyboard->down[key - KEYBOAD_STATE_MIN_CHAR];
 }
 
+static inline bool is_key_just_pressed(struct Game *game, int32_t key) {
+  return is_key_pressed(&game->keyboard, key) &&
+         !is_key_pressed(&game->prev_keyboard, key);
+}
+
 static inline float read_axis(float joystick_axis, bool negative_key_pressed,
                               bool positive_key_pressed) {
   float result = 0.0f;
@@ -253,8 +260,7 @@ void update_game(struct Game *game, struct KeyboardState *keyboard,
   }
 
   bool change_map_mode = game->controller[RIGHT_CONTROLLER_INDEX].grip > 0.9f;
-  if ((is_key_pressed(&game->keyboard, 'j') &&
-       !is_key_pressed(&game->prev_keyboard, 'j')) ||
+  if (is_key_just_pressed(game, 'j') ||
       (game->trigger_set[LEFT_CONTROLLER_INDEX] && change_map_mode &&
        game->controller[LEFT_CONTROLLER_INDEX].trigger > 0.9f)) {
     game->trigger_set[LEFT_CONTROLLER_INDEX] = false;
@@ -262,14 +268,25 @@ void update_game(struct Game *game, struct KeyboardState *keyboard,
     if (game->map_index < 0) {
       game->map_index = MAP_COUNT - 1;
     }
-  } else if ((is_key_pressed(&game->keyboard, 'k') &&
-              !is_key_pressed(&game->prev_keyboard, 'k')) ||
+  } else if (is_key_just_pressed(game, 'k') ||
              (game->trigger_set[RIGHT_CONTROLLER_INDEX] && change_map_mode &&
               game->controller[RIGHT_CONTROLLER_INDEX].trigger > 0.9f)) {
     game->trigger_set[RIGHT_CONTROLLER_INDEX] = false;
     ++game->map_index;
     if (game->map_index >= MAP_COUNT) {
       game->map_index = 0;
+    }
+  }
+
+  if (is_key_just_pressed(game, 'h')) {
+    --game->lod_index;
+    if (game->lod_index < 0) {
+      game->lod_index = LOD_COUNT - 1;
+    }
+  } else if (is_key_just_pressed(game, 'l')) {
+    ++game->lod_index;
+    if (game->lod_index >= LOD_COUNT) {
+      game->lod_index = 0;
     }
   }
 
@@ -350,6 +367,37 @@ void update_game(struct Game *game, struct KeyboardState *keyboard,
   }
 }
 
+static int32_t generate_lod_indices(struct Map *map, int32_t sample_divisor,
+                                    int32_t *index_buffer,
+                                    int32_t buffer_size) {
+  int32_t num_indices = 0;
+
+  int32_t sample_width = map->height_map.width / sample_divisor;
+  int32_t sample_height = map->height_map.height / sample_divisor;
+  for (int32_t sample_y = 0; sample_y < sample_width - 1; ++sample_y) {
+    for (int32_t sample_x = 0; sample_x < sample_height - 1; ++sample_x) {
+      float x = sample_x * sample_divisor;
+      float y = sample_y * sample_divisor;
+
+      int32_t v_index = ((y * map->height_map.width) + x);
+
+      assert(num_indices + 6 < buffer_size);
+      index_buffer[num_indices++] = v_index;
+      index_buffer[num_indices++] =
+          v_index + (map->height_map.width * sample_divisor);
+      index_buffer[num_indices++] = v_index + sample_divisor;
+
+      index_buffer[num_indices++] =
+          v_index + (map->height_map.width * sample_divisor);
+      index_buffer[num_indices++] =
+          v_index + (map->height_map.width * sample_divisor) + sample_divisor;
+      index_buffer[num_indices++] = v_index + sample_divisor;
+    }
+  }
+
+  return num_indices;
+}
+
 static void create_map_gl_data(struct Map *map) {
   glGenTextures(1, &map->color_map_tex_id);
   glBindTexture(GL_TEXTURE_2D, map->color_map_tex_id);
@@ -365,39 +413,38 @@ static void create_map_gl_data(struct Map *map) {
   V3 *map_vertices = malloc(sizeof(V3) * num_map_vertices);
 
   int32_t indices_per_vert = 6;
-  int32_t num_indices = 0;
 
   // NOTE: allocating slightly more space than we need since we don't generate
   // indices for the final row and column
-  int32_t *index_buffer =
-      malloc(sizeof(int32_t) * num_map_vertices * indices_per_vert);
+  int32_t index_buffer_length = num_map_vertices * indices_per_vert * 3;
+  int32_t *index_buffer = malloc(sizeof(int32_t) * index_buffer_length);
 
-  for (int32_t y = 0; y < map->height_map.height; y++) {
-    for (int32_t x = 0; x < map->height_map.width; x++) {
-      int32_t v_index = ((y * map->height_map.width) + x);
+  int32_t sample_rate = 1;
+  int32_t sample_width = map->height_map.width / sample_rate;
+  int32_t sample_height = map->height_map.height / sample_rate;
+  for (int32_t sample_y = 0; sample_y < sample_width; ++sample_y) {
+    for (int32_t sample_x = 0; sample_x < sample_height; ++sample_x) {
+      float x = sample_x * sample_rate;
+      float y = sample_y * sample_rate;
+      int32_t v_index = ((sample_y * sample_width) + sample_x);
+      assert(v_index < num_map_vertices);
       map_vertices[v_index][0] = x;
       map_vertices[v_index][1] = (float)get_image_grey(&map->height_map, x, y);
       map_vertices[v_index][2] = y;
-      assert(v_index < num_map_vertices);
-
-      if (x >= map->height_map.width - 1 || y >= map->height_map.height - 1) {
-        continue;
-      }
-
-      int32_t i_index = v_index * indices_per_vert;
-
-      index_buffer[i_index] = v_index;
-      index_buffer[i_index + 1] = v_index + map->height_map.width;
-      index_buffer[i_index + 2] = v_index + 1;
-
-      index_buffer[i_index + 3] = v_index + map->height_map.width;
-      index_buffer[i_index + 4] = v_index + map->height_map.width + 1;
-      index_buffer[i_index + 5] = v_index + 1;
-      num_indices += indices_per_vert;
-      assert(i_index + 5 < (indices_per_vert * num_map_vertices));
     }
   }
-  info("# of vertices in terrain mesh: %i\n", num_indices);
+
+  int32_t num_indices = 0;
+  int32_t divisor = 1;
+  for (int32_t i = 0; i < LOD_COUNT; ++i) {
+    map->lods[i].offset = num_indices;
+    int32_t num_lod_indices =
+        generate_lod_indices(map, divisor, &index_buffer[num_indices],
+                             index_buffer_length - num_indices);
+    map->lods[i].num_indices = num_lod_indices;
+    num_indices += num_lod_indices;
+    divisor *= 2;
+  }
 
   glGenVertexArrays(1, &map->map_vao);
   glBindVertexArray(map->map_vao);
@@ -406,14 +453,12 @@ static void create_map_gl_data(struct Map *map) {
   glBindBuffer(GL_ARRAY_BUFFER, map->map_vbo);
   glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
   glEnableVertexAttribArray(0);
-  map->map_vao_num_vertices = num_map_vertices;
   glBufferData(GL_ARRAY_BUFFER, num_map_vertices * sizeof(V3), map_vertices,
                GL_STATIC_DRAW);
   free(map_vertices);
 
   glGenBuffers(1, &map->map_vbo_indices);
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, map->map_vbo_indices);
-  map->num_map_vbo_indices = num_indices;
   glBufferData(GL_ELEMENT_ARRAY_BUFFER, num_indices * sizeof(int32_t),
                index_buffer, GL_STATIC_DRAW);
   free(index_buffer);
@@ -565,6 +610,7 @@ int32_t game_init(struct Game *game, int32_t width, int32_t height) {
 
   create_gl_objects(game);
   game->map_index = 0;
+  game->lod_index = 0;
   for (int i = 0; i < 2; ++i) {
     game->trigger_set[i] = true;
   }

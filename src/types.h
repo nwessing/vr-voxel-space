@@ -100,6 +100,12 @@ struct MapEntry {
   char *height;
 };
 
+struct Lod {
+  int32_t offset;
+  int32_t num_indices;
+};
+
+#define LOD_COUNT 3
 struct Map {
   struct ImageBuffer color_map;
   struct ImageBuffer height_map;
@@ -107,9 +113,7 @@ struct Map {
   GLuint map_vbo_indices;
   GLuint map_vao;
   GLuint color_map_tex_id;
-  // GLuint height_map_tex_id;
-  uint32_t map_vao_num_vertices;
-  uint32_t num_map_vbo_indices;
+  struct Lod lods[LOD_COUNT];
 };
 
 #define LEFT_CONTROLLER_INDEX 0
@@ -119,6 +123,7 @@ struct Game {
   struct GameOptions options;
   struct Camera camera;
   int map_index;
+  int lod_index;
   struct Map maps[MAP_COUNT];
   struct FrameBuffer frame;
   struct OpenGLData gl;
