@@ -61,12 +61,14 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
                            mat4 in_view_matrix) {
   glEnable(GL_DEPTH_TEST);
   glEnable(GL_CULL_FACE);
+  /* glPolygonMode(GL_FRONT_AND_BACK, GL_LINE); */
   glClearColor(0.529f, 0.808f, 0.98f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
   struct Camera *camera = &game->camera;
-  vec3 camera_offset = {-camera->position_x, -camera->position_y,
-                        -camera->position_z};
+  vec3 camera_offset;
+  glm_vec3_scale(camera->position, -1.0f, camera_offset);
+
   glm_vec3_mul(camera_offset, CAMERA_TO_TERRAIN, camera_offset);
   glm_vec3_scale(camera_offset, camera->terrain_scale, camera_offset);
 
@@ -93,25 +95,47 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
   // TODO: rendering 9 big meshes is too slow on quest, need to find a more
   // efficient way to do this.
   /* for (int32_t i = 0; i < 9; ++i) { */
-  for (int32_t i = 4; i < 5; ++i) {
-    int32_t x = (i / 3) - 1;
-    int32_t z = (i % 3) - 1;
+  /* for (int32_t i = 4; i < 5; ++i) { */
+  /*   int32_t x = (i / 3) - 1; */
+  /*   int32_t z = (i % 3) - 1; */
+
+  /* vec4 translate = {x * 1024.0f, 0.0f, z * 1024.0f}; */
+  for (int32_t i_section = 0; i_section < MAP_SECTION_COUNT; ++i_section) {
+
+    struct MapSection *section = &map->sections[i_section];
+    /* vec3 section_translate; */
+    /* glm_vec3_add(translate, section->center, section_translate); */
+    /* glm_translate(model, section_translate); */
 
     mat4 model = GLM_MAT4_IDENTITY_INIT;
     float map_modifier = 1024.0f / map->height_map.width;
     glm_scale(model, (vec3){camera->terrain_scale * map_modifier,
                             camera->terrain_scale,
                             camera->terrain_scale * map_modifier});
-    vec4 translate = {x * 1024.0f, 0.0f, z * 1024.0f};
-    glm_translate(model, translate);
+
+    /* glm_translate(model, translate); */
     mat4 mvp = GLM_MAT4_IDENTITY_INIT;
     glm_mat4_mul(projection_view, model, mvp);
     glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "mvp"), 1,
                        GL_FALSE, (float *)mvp);
-    glDrawElements(GL_TRIANGLES, map->lods[game->lod_index].num_indices,
-                   GL_UNSIGNED_INT,
-                   (void *)(uintptr_t)(map->lods[game->lod_index].offset *
-                                       sizeof(int32_t)));
+
+    int32_t lod_index = 0;
+    // TODO needs to account for HMD position
+    vec3 cam_terrain_position;
+    glm_vec3_mul(camera->position, CAMERA_TO_TERRAIN, cam_terrain_position);
+    float distance = glm_vec3_distance(cam_terrain_position, section->center);
+    if (distance <= 128.0f) {
+      lod_index = 0;
+    } else if (distance < 512.0) {
+      lod_index = 1;
+    } else {
+      lod_index = 2;
+    }
+
+    /* info("selecting lod %i for section %i \n", lod_index, i_section); */
+    struct Lod *lod = &section->lods[lod_index];
+    glDrawElements(GL_TRIANGLES, lod->num_indices, GL_UNSIGNED_INT,
+                   (void *)(uintptr_t)(lod->offset * sizeof(int32_t)));
   }
 }
 
@@ -146,15 +170,16 @@ void render_game(struct Game *game, mat4 projection, mat4 view_matrix) {
   glViewport(0, 0, game->camera.viewport_width, game->camera.viewport_height);
 
   /* if (game->options.do_raycasting) { */
-  /*   memset(game->frame.pixels, 0, game->frame.height * game->frame.pitch); */
+  /*   memset(game->frame.pixels, 0, game->frame.height * game->frame.pitch);
+   */
   /*   if (game->options.render_stereo) { */
   /*     for (int eye = 0; eye < 2; ++eye) { */
   /*       struct FrameBuffer eye_buffer; */
   /*       eye_buffer.width = game->frame.width / 2; */
   /*       eye_buffer.height = game->frame.height; */
   /*       eye_buffer.pitch = game->frame.pitch; */
-  /*       eye_buffer.y_buffer = &game->frame.y_buffer[eye * (eye_buffer.width /
-   * 2)]; */
+  /*       eye_buffer.y_buffer = &game->frame.y_buffer[eye * (eye_buffer.width
+   * / 2)]; */
   /*       eye_buffer.clip_left_x = eye == 0 ? 0 : game->camera.clip; */
   /*       eye_buffer.clip_right_x = eye_buffer.width - (eye == 0 ?
    * game->camera.clip : 0); */
@@ -164,10 +189,10 @@ void render_game(struct Game *game, mat4 projection, mat4 view_matrix) {
   /*       int eye_mod = eye == 1 ? 1 : -1; */
   /*       int eye_dist = 3; */
   /*       struct Camera eye_cam = game->camera; */
-  /*       eye_cam.position_x += (int)(eye_mod * eye_dist * sin(eye_cam.pitch +
-   * (M_PI / 2))); */
-  /*       eye_cam.position_y += (int)(eye_mod * eye_dist * cos(eye_cam.pitch +
-   * (M_PI / 2))); */
+  /*       eye_cam.position_x += (int)(eye_mod * eye_dist * sin(eye_cam.pitch
+   * + (M_PI / 2))); */
+  /*       eye_cam.position_y += (int)(eye_mod * eye_dist * cos(eye_cam.pitch
+   * + (M_PI / 2))); */
 
   /*       render(&eye_buffer, &game->color_map, &game->height_map, &eye_cam);
    */
@@ -298,7 +323,7 @@ void update_game(struct Game *game, struct KeyboardState *keyboard,
 
   struct Map *map = &game->maps[game->map_index];
   float prev_ground_height = get_ground_height(
-      &map->height_map, game->camera.position_x, game->camera.position_z);
+      &map->height_map, game->camera.position[0], game->camera.position[2]);
   vec3 direction_intensities = {horizontal_movement, vertical_movement,
                                 -forward_movement};
   vec3 movement;
@@ -312,9 +337,7 @@ void update_game(struct Game *game, struct KeyboardState *keyboard,
     glm_vec3_clamp(movement, -delta_units, delta_units);
   }
 
-  game->camera.position_x += movement[0];
-  game->camera.position_y += movement[1];
-  game->camera.position_z += movement[2];
+  glm_vec3_add(game->camera.position, movement, game->camera.position);
 
   game->camera.pitch +=
       -rotation_movement * M_PI *
@@ -322,10 +345,10 @@ void update_game(struct Game *game, struct KeyboardState *keyboard,
 
   if (game->camera.is_z_relative_to_ground) {
     float ground_height = get_ground_height(
-        &map->height_map, game->camera.position_x, game->camera.position_z);
+        &map->height_map, game->camera.position[0], game->camera.position[2]);
     float ground_height_diff = ground_height - prev_ground_height;
-    game->camera.position_y = clamp(
-        game->camera.position_y + ground_height_diff, ground_height, 10000.0f);
+    game->camera.position[1] = clamp(
+        game->camera.position[1] + ground_height_diff, ground_height, 10000.0f);
   }
 
   while (game->camera.pitch >= 2 * M_PI) {
@@ -336,20 +359,20 @@ void update_game(struct Game *game, struct KeyboardState *keyboard,
     game->camera.pitch += 2 * M_PI;
   }
 
-  while (game->camera.position_x >= 1.0) {
-    game->camera.position_x -= 1.0;
+  while (game->camera.position[0] >= 1.0) {
+    game->camera.position[0] -= 1.0;
   }
 
-  while (game->camera.position_z >= 1.0) {
-    game->camera.position_z -= 1.0;
+  while (game->camera.position[2] >= 1.0) {
+    game->camera.position[2] -= 1.0;
   }
 
-  while (game->camera.position_x < 0) {
-    game->camera.position_x += 1.0;
+  while (game->camera.position[0] < 0) {
+    game->camera.position[0] += 1.0;
   }
 
-  while (game->camera.position_z < 0) {
-    game->camera.position_z += 1.0;
+  while (game->camera.position[2] < 0) {
+    game->camera.position[2] += 1.0;
   }
 
   if (is_key_pressed(&game->keyboard, 'z') ||
@@ -367,17 +390,28 @@ void update_game(struct Game *game, struct KeyboardState *keyboard,
   }
 }
 
+struct Rect {
+  int32_t x;
+  int32_t y;
+  int32_t width;
+  int32_t height;
+};
+
 static int32_t generate_lod_indices(struct Map *map, int32_t sample_divisor,
-                                    int32_t *index_buffer,
+                                    struct Rect rect, int32_t *index_buffer,
                                     int32_t buffer_size) {
   int32_t num_indices = 0;
 
-  int32_t sample_width = map->height_map.width / sample_divisor;
-  int32_t sample_height = map->height_map.height / sample_divisor;
-  for (int32_t sample_y = 0; sample_y < sample_width - 1; ++sample_y) {
-    for (int32_t sample_x = 0; sample_x < sample_height - 1; ++sample_x) {
-      float x = sample_x * sample_divisor;
-      float y = sample_y * sample_divisor;
+  int32_t sample_width = rect.width / sample_divisor;
+  int32_t sample_height = rect.height / sample_divisor;
+  for (int32_t sample_y = 0; sample_y < sample_width; ++sample_y) {
+    for (int32_t sample_x = 0; sample_x < sample_height; ++sample_x) {
+      int32_t x = rect.x + (sample_x * sample_divisor);
+      int32_t y = rect.y + (sample_y * sample_divisor);
+      if (x + sample_divisor >= map->height_map.width ||
+          y + sample_divisor >= map->height_map.height) {
+        continue;
+      }
 
       int32_t v_index = ((y * map->height_map.width) + x);
 
@@ -416,17 +450,14 @@ static void create_map_gl_data(struct Map *map) {
 
   // NOTE: allocating slightly more space than we need since we don't generate
   // indices for the final row and column
-  int32_t index_buffer_length = num_map_vertices * indices_per_vert * 3;
+  int32_t index_buffer_length = num_map_vertices * indices_per_vert * LOD_COUNT;
   int32_t *index_buffer = malloc(sizeof(int32_t) * index_buffer_length);
 
-  int32_t sample_rate = 1;
-  int32_t sample_width = map->height_map.width / sample_rate;
-  int32_t sample_height = map->height_map.height / sample_rate;
-  for (int32_t sample_y = 0; sample_y < sample_width; ++sample_y) {
-    for (int32_t sample_x = 0; sample_x < sample_height; ++sample_x) {
-      float x = sample_x * sample_rate;
-      float y = sample_y * sample_rate;
-      int32_t v_index = ((sample_y * sample_width) + sample_x);
+  int32_t width = map->height_map.width;
+  int32_t height = map->height_map.height;
+  for (int32_t y = 0; y < width; ++y) {
+    for (int32_t x = 0; x < height; ++x) {
+      int32_t v_index = ((y * width) + x);
       assert(v_index < num_map_vertices);
       map_vertices[v_index][0] = x;
       map_vertices[v_index][1] = (float)get_image_grey(&map->height_map, x, y);
@@ -435,15 +466,30 @@ static void create_map_gl_data(struct Map *map) {
   }
 
   int32_t num_indices = 0;
-  int32_t divisor = 1;
-  for (int32_t i = 0; i < LOD_COUNT; ++i) {
-    map->lods[i].offset = num_indices;
-    int32_t num_lod_indices =
-        generate_lod_indices(map, divisor, &index_buffer[num_indices],
-                             index_buffer_length - num_indices);
-    map->lods[i].num_indices = num_lod_indices;
-    num_indices += num_lod_indices;
-    divisor *= 2;
+  int32_t section_width = width / MAP_X_SEGMENTS;
+  int32_t section_height = height / MAP_Y_SEGMENTS;
+  for (int32_t i_section = 0; i_section < MAP_SECTION_COUNT; ++i_section) {
+    struct Rect rect = {.x = (i_section / MAP_X_SEGMENTS) * section_width,
+                        .y = (i_section % MAP_Y_SEGMENTS) * section_height,
+                        .width = section_width,
+                        .height = section_height};
+    struct MapSection *section = &map->sections[i_section];
+    section->center[0] = rect.x + (section_width / 2.0f);
+    section->center[1] = 0.0f;
+    section->center[2] = rect.y + (section_height / 2.0f);
+    /* info("section[%i] = (%f, %f, %f)\n", i_section, section->center[0], */
+    /*      section->center[1], section->center[2]); */
+
+    int32_t divisor = 1;
+    for (int32_t i_lod = 0; i_lod < LOD_COUNT; ++i_lod) {
+      section->lods[i_lod].offset = num_indices;
+      int32_t num_lod_indices =
+          generate_lod_indices(map, divisor, rect, &index_buffer[num_indices],
+                               index_buffer_length - num_indices);
+      section->lods[i_lod].num_indices = num_lod_indices;
+      num_indices += num_lod_indices;
+      divisor *= 2;
+    }
   }
 
   glGenVertexArrays(1, &map->map_vao);
@@ -527,7 +573,6 @@ static void create_gl_objects(struct Game *game) {
 }
 
 static int32_t load_map(struct Map *map, struct MapEntry *map_entry) {
-  /* info("color = %s, height = %s\n", map_entry->color, map_entry->height); */
   map->color_map.pixels =
       stbi_load(map_entry->color, &map->color_map.width, &map->color_map.height,
                 &map->color_map.num_channels, 0);
@@ -601,9 +646,12 @@ int32_t game_init(struct Game *game, int32_t width, int32_t height) {
                                  .pitch = M_PI,
                                  .horizon = game->frame.height / 2,
                                  .scale_height = game->frame.height * 0.35,
-                                 .position_x = 436.0 / 1024.0,
-                                 .position_z = 54 / 1024.0,
-                                 .position_y = 200.0f / 255.0,
+                                 .position =
+                                     {
+                                         436.0f / 1024.0f,
+                                         200.0f / 255.0f,
+                                         54.0f / 1024.0f,
+                                     },
                                  .terrain_scale = 0.5f,
                                  .clip = .06f * game->frame.width,
                                  .is_z_relative_to_ground = false};

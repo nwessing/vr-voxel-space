@@ -42,9 +42,7 @@ struct Camera {
   versor quat;
   int32_t horizon;
   int32_t scale_height;
-  float position_x;
-  float position_z;
-  float position_y;
+  vec3 position;
   float terrain_scale;
   int32_t clip;
   bool is_z_relative_to_ground;
@@ -106,6 +104,14 @@ struct Lod {
 };
 
 #define LOD_COUNT 3
+struct MapSection {
+  vec3 center;
+  struct Lod lods[LOD_COUNT];
+};
+
+#define MAP_X_SEGMENTS 4
+#define MAP_Y_SEGMENTS MAP_X_SEGMENTS
+#define MAP_SECTION_COUNT (MAP_X_SEGMENTS * MAP_Y_SEGMENTS)
 struct Map {
   struct ImageBuffer color_map;
   struct ImageBuffer height_map;
@@ -113,7 +119,7 @@ struct Map {
   GLuint map_vbo_indices;
   GLuint map_vao;
   GLuint color_map_tex_id;
-  struct Lod lods[LOD_COUNT];
+  struct MapSection sections[MAP_SECTION_COUNT];
 };
 
 #define LEFT_CONTROLLER_INDEX 0
