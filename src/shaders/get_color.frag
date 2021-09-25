@@ -9,8 +9,9 @@ in vec3 Position;
 
 uniform sampler2D colorMap;
 uniform ivec2 heightMapSize;
+uniform vec3 blendColor;
 
 void main()
 {
-  FragColor = texture(colorMap, Position.xz / vec2(heightMapSize));
+  FragColor = texture(colorMap, Position.xz / vec2(heightMapSize)) * vec4(blendColor, 1.0);
 }

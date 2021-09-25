@@ -11,7 +11,8 @@
 #include "types.h"
 #include "util.h"
 
-static vec3 CAMERA_TO_TERRAIN = {1024.0, 255.0, 1024.0};
+#define BASE_MAP_SIZE 1024
+static vec3 CAMERA_TO_TERRAIN = {BASE_MAP_SIZE, 255.0, BASE_MAP_SIZE};
 
 static struct MapEntry maps[MAP_COUNT] = {
     {"maps/C1W.png", "maps/D1.png"},   {"maps/C2W.png", "maps/D2.png"},
@@ -61,6 +62,7 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
                            mat4 in_view_matrix) {
   glEnable(GL_DEPTH_TEST);
   glEnable(GL_CULL_FACE);
+  // Uncomment for wireframe
   /* glPolygonMode(GL_FRONT_AND_BACK, GL_LINE); */
   glClearColor(0.529f, 0.808f, 0.98f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -90,52 +92,62 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
   glm_mat4_mul(in_projection_matrix, view_matrix, projection_view);
 
   glUniform2i(glGetUniformLocation(gl->poly_shader_program, "heightMapSize"),
-              map->height_map.width, map->height_map.height);
+              BASE_MAP_SIZE, BASE_MAP_SIZE);
 
-  // TODO: rendering 9 big meshes is too slow on quest, need to find a more
-  // efficient way to do this.
-  /* for (int32_t i = 0; i < 9; ++i) { */
-  /* for (int32_t i = 4; i < 5; ++i) { */
-  /*   int32_t x = (i / 3) - 1; */
-  /*   int32_t z = (i % 3) - 1; */
+  for (int32_t i = 0; i < 9; ++i) {
+    int32_t x = (i / 3) - 1;
+    int32_t z = (i % 3) - 1;
 
-  /* vec4 translate = {x * 1024.0f, 0.0f, z * 1024.0f}; */
-  for (int32_t i_section = 0; i_section < MAP_SECTION_COUNT; ++i_section) {
-
-    struct MapSection *section = &map->sections[i_section];
-    /* vec3 section_translate; */
-    /* glm_vec3_add(translate, section->center, section_translate); */
-    /* glm_translate(model, section_translate); */
-
+    vec3 translate = {x * BASE_MAP_SIZE, 0.0f, z * BASE_MAP_SIZE};
     mat4 model = GLM_MAT4_IDENTITY_INIT;
-    float map_modifier = 1024.0f / map->height_map.width;
-    glm_scale(model, (vec3){camera->terrain_scale * map_modifier,
-                            camera->terrain_scale,
-                            camera->terrain_scale * map_modifier});
+    vec3 map_scaler = {camera->terrain_scale, camera->terrain_scale,
+                       camera->terrain_scale};
+    glm_scale(model, map_scaler);
+    glm_translate(model, translate);
 
-    /* glm_translate(model, translate); */
     mat4 mvp = GLM_MAT4_IDENTITY_INIT;
     glm_mat4_mul(projection_view, model, mvp);
     glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "mvp"), 1,
                        GL_FALSE, (float *)mvp);
+    for (int32_t i_section = 0; i_section < MAP_SECTION_COUNT; ++i_section) {
 
-    int32_t lod_index = 0;
-    // TODO needs to account for HMD position
-    vec3 cam_terrain_position;
-    glm_vec3_mul(camera->position, CAMERA_TO_TERRAIN, cam_terrain_position);
-    float distance = glm_vec3_distance(cam_terrain_position, section->center);
-    if (distance <= 128.0f) {
-      lod_index = 0;
-    } else if (distance < 512.0) {
-      lod_index = 1;
-    } else {
-      lod_index = 2;
+      struct MapSection *section = &map->sections[i_section];
+
+      // TODO needs to account for HMD position
+      vec3 cam_terrain_position;
+      glm_vec3_mul(camera->position, CAMERA_TO_TERRAIN, cam_terrain_position);
+
+      vec3 section_center;
+      glm_vec3_add(section->center, translate, section_center);
+
+      float distance = glm_vec3_distance(cam_terrain_position, section_center);
+      int32_t lod_index = 0;
+      vec3 lod_blend_color = {1.0, 1.0, 1.0};
+      if (distance <= 256.0f) {
+        lod_index = 0;
+        lod_blend_color[1] = 0.0;
+        lod_blend_color[2] = 0.0;
+      } else if (distance < 512.0) {
+        lod_index = 1;
+        lod_blend_color[0] = 0.0;
+        lod_blend_color[2] = 0.0;
+      } else {
+        lod_index = 2;
+        lod_blend_color[0] = 0.0;
+        lod_blend_color[1] = 0.0;
+      }
+
+      if (!game->options.visualize_lod) {
+        lod_blend_color[0] = 1.0;
+        lod_blend_color[1] = 1.0;
+        lod_blend_color[2] = 1.0;
+      }
+      glUniform3fv(glGetUniformLocation(gl->poly_shader_program, "blendColor"),
+                   1, lod_blend_color);
+      struct Lod *lod = &section->lods[lod_index];
+      glDrawElements(GL_TRIANGLES, lod->num_indices, GL_UNSIGNED_INT,
+                     (void *)(uintptr_t)(lod->offset * sizeof(int32_t)));
     }
-
-    /* info("selecting lod %i for section %i \n", lod_index, i_section); */
-    struct Lod *lod = &section->lods[lod_index];
-    glDrawElements(GL_TRIANGLES, lod->num_indices, GL_UNSIGNED_INT,
-                   (void *)(uintptr_t)(lod->offset * sizeof(int32_t)));
   }
 }
 
@@ -217,6 +229,8 @@ static inline bool is_key_just_pressed(struct Game *game, int32_t key) {
   return is_key_pressed(&game->keyboard, key) &&
          !is_key_pressed(&game->prev_keyboard, key);
 }
+
+/* static inline bool is_button_just_pressed(struct Game *game */
 
 static inline float read_axis(float joystick_axis, bool negative_key_pressed,
                               bool positive_key_pressed) {
@@ -303,16 +317,10 @@ void update_game(struct Game *game, struct KeyboardState *keyboard,
     }
   }
 
-  if (is_key_just_pressed(game, 'h')) {
-    --game->lod_index;
-    if (game->lod_index < 0) {
-      game->lod_index = LOD_COUNT - 1;
-    }
-  } else if (is_key_just_pressed(game, 'l')) {
-    ++game->lod_index;
-    if (game->lod_index >= LOD_COUNT) {
-      game->lod_index = 0;
-    }
+  if (is_key_just_pressed(game, 'e') ||
+      (left_controller->secondary_button &&
+       !left_controller_prev->secondary_button)) {
+    game->options.visualize_lod = !game->options.visualize_lod;
   }
 
   for (int i = 0; i < 2; ++i) {
@@ -454,14 +462,17 @@ static void create_map_gl_data(struct Map *map) {
   int32_t *index_buffer = malloc(sizeof(int32_t) * index_buffer_length);
 
   int32_t width = map->height_map.width;
+
+  // Convert 512x512 maps to match space of 1024x1024 maps
+  float modifier = (float)BASE_MAP_SIZE / width;
   int32_t height = map->height_map.height;
   for (int32_t y = 0; y < width; ++y) {
     for (int32_t x = 0; x < height; ++x) {
       int32_t v_index = ((y * width) + x);
       assert(v_index < num_map_vertices);
-      map_vertices[v_index][0] = x;
+      map_vertices[v_index][0] = x * modifier;
       map_vertices[v_index][1] = (float)get_image_grey(&map->height_map, x, y);
-      map_vertices[v_index][2] = y;
+      map_vertices[v_index][2] = y * modifier;
     }
   }
 
@@ -474,11 +485,9 @@ static void create_map_gl_data(struct Map *map) {
                         .width = section_width,
                         .height = section_height};
     struct MapSection *section = &map->sections[i_section];
-    section->center[0] = rect.x + (section_width / 2.0f);
-    section->center[1] = 0.0f;
-    section->center[2] = rect.y + (section_height / 2.0f);
-    /* info("section[%i] = (%f, %f, %f)\n", i_section, section->center[0], */
-    /*      section->center[1], section->center[2]); */
+    section->center[0] = (rect.x + (section_width / 2.0f)) * modifier;
+    section->center[1] = 128.0f;
+    section->center[2] = (rect.y + (section_height / 2.0f)) * modifier;
 
     int32_t divisor = 1;
     for (int32_t i_lod = 0; i_lod < LOD_COUNT; ++i_lod) {
@@ -658,7 +667,7 @@ int32_t game_init(struct Game *game, int32_t width, int32_t height) {
 
   create_gl_objects(game);
   game->map_index = 0;
-  game->lod_index = 0;
+  game->options.visualize_lod = false;
   for (int i = 0; i < 2; ++i) {
     game->trigger_set[i] = true;
   }

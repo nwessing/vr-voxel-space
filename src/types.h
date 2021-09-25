@@ -59,6 +59,7 @@ struct OpenGLData {
 };
 
 struct GameOptions {
+  bool visualize_lod;
   bool do_raycasting;
   bool render_stereo;
 };
@@ -115,6 +116,8 @@ struct MapSection {
 struct Map {
   struct ImageBuffer color_map;
   struct ImageBuffer height_map;
+  // int width;
+  // int height;
   GLuint map_vbo;
   GLuint map_vbo_indices;
   GLuint map_vao;
@@ -129,7 +132,6 @@ struct Game {
   struct GameOptions options;
   struct Camera camera;
   int map_index;
-  int lod_index;
   struct Map maps[MAP_COUNT];
   struct FrameBuffer frame;
   struct OpenGLData gl;
