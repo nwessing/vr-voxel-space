@@ -22,8 +22,5 @@ else()
   target_compile_options(game PRIVATE -Wall -Wextra -pedantic -Werror -Wno-error=unused-function -O2)
 endif()
 
-find_package(SDL2 REQUIRED)
-include_directories(${SDL2_INCLUDE_DIRS})
-target_link_libraries(game
-  PRIVATE ${SDL2_LIBRARIES}
-  )
+add_subdirectory(../vendor/SDL ./sdl2)
+target_link_libraries(game PRIVATE SDL2)

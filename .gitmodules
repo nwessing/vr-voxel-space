@@ -1,3 +1,6 @@
 [submodule "vendor/cglm"]
 	path = vendor/cglm
 	url = git@github.com:recp/cglm
+[submodule "vendor/SDL"]
+	path = vendor/SDL
+	url = git@github.com:libsdl-org/SDL
