@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "platform.h"
+#include "stdint.h"
 /* #include "file.h" */
 
 // Read a file into a char array, caller is responsible for
