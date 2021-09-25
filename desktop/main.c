@@ -1,4 +1,5 @@
 #include "glad/glad.h"
+#define SDL_MAIN_HANDLED
 #include <SDL.h>
 
 #ifdef INCLUDE_LIBOVR

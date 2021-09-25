@@ -98,7 +98,9 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
     int32_t x = (i / 3) - 1;
     int32_t z = (i % 3) - 1;
 
-    vec3 translate = {x * BASE_MAP_SIZE, 0.0f, z * BASE_MAP_SIZE};
+    // NOTE not sure why I need to subtract 1 from X and Z to make the seams disappear when
+    // tiling the map
+    vec3 translate = {x * (BASE_MAP_SIZE - 1.0f), 0.0f, z * (BASE_MAP_SIZE - 1.0f)};
     mat4 model = GLM_MAT4_IDENTITY_INIT;
     vec3 map_scaler = {camera->terrain_scale, camera->terrain_scale,
                        camera->terrain_scale};
@@ -405,9 +407,17 @@ struct Rect {
   int32_t height;
 };
 
-static int32_t generate_lod_indices(struct Map *map, int32_t sample_divisor,
+struct MapMeshExtents {
+  int32_t width;
+  int32_t height;
+};
+
+static int32_t generate_lod_indices(struct MapMeshExtents *map_mesh_extents, int32_t sample_divisor,
                                     struct Rect rect, int32_t *index_buffer,
                                     int32_t buffer_size) {
+  int32_t width = map_mesh_extents->width;
+  int32_t height = map_mesh_extents->height;
+
   int32_t num_indices = 0;
 
   int32_t sample_width = rect.width / sample_divisor;
@@ -416,23 +426,23 @@ static int32_t generate_lod_indices(struct Map *map, int32_t sample_divisor,
     for (int32_t sample_x = 0; sample_x < sample_height; ++sample_x) {
       int32_t x = rect.x + (sample_x * sample_divisor);
       int32_t y = rect.y + (sample_y * sample_divisor);
-      if (x + sample_divisor >= map->height_map.width ||
-          y + sample_divisor >= map->height_map.height) {
+      if (x + sample_divisor >= width ||
+          y + sample_divisor >= height) {
         continue;
       }
 
-      int32_t v_index = ((y * map->height_map.width) + x);
+      int32_t v_index = ((y * width) + x);
 
       assert(num_indices + 6 < buffer_size);
       index_buffer[num_indices++] = v_index;
       index_buffer[num_indices++] =
-          v_index + (map->height_map.width * sample_divisor);
+          v_index + (width * sample_divisor);
       index_buffer[num_indices++] = v_index + sample_divisor;
 
       index_buffer[num_indices++] =
-          v_index + (map->height_map.width * sample_divisor);
+          v_index + (width * sample_divisor);
       index_buffer[num_indices++] =
-          v_index + (map->height_map.width * sample_divisor) + sample_divisor;
+          v_index + (width * sample_divisor) + sample_divisor;
       index_buffer[num_indices++] = v_index + sample_divisor;
     }
   }
@@ -451,34 +461,52 @@ static void create_map_gl_data(struct Map *map) {
                map->color_map.height, 0, GL_RGB, GL_UNSIGNED_BYTE,
                map->color_map.pixels);
 
-  int32_t num_map_vertices = (map->height_map.width * map->height_map.height);
+  // NOTE generate vertices for 1 past the width and height, so that maps
+  // can be seamlessly tiled together
+  struct MapMeshExtents extents = {
+    .width = map->height_map.width + 1,
+    .height = map->height_map.height + 1,
+  };
+
+  int32_t num_map_vertices = (extents.width * extents.height);
   V3 *map_vertices = malloc(sizeof(V3) * num_map_vertices);
 
   int32_t indices_per_vert = 6;
 
-  // NOTE: allocating slightly more space than we need since we don't generate
-  // indices for the final row and column
   int32_t index_buffer_length = num_map_vertices * indices_per_vert * LOD_COUNT;
   int32_t *index_buffer = malloc(sizeof(int32_t) * index_buffer_length);
 
-  int32_t width = map->height_map.width;
-
   // Convert 512x512 maps to match space of 1024x1024 maps
-  float modifier = (float)BASE_MAP_SIZE / width;
-  int32_t height = map->height_map.height;
-  for (int32_t y = 0; y < width; ++y) {
-    for (int32_t x = 0; x < height; ++x) {
-      int32_t v_index = ((y * width) + x);
+  float modifier = (float)BASE_MAP_SIZE / extents.width;
+
+  for (int32_t y = 0; y < extents.height; ++y) {
+    for (int32_t x = 0; x < extents.width; ++x) {
+      int32_t v_index = ((y * extents.width) + x);
+
+      assert(v_index >= 0);
       assert(v_index < num_map_vertices);
+
       map_vertices[v_index][0] = x * modifier;
-      map_vertices[v_index][1] = (float)get_image_grey(&map->height_map, x, y);
+
+      // NOTE When sample 1 past the width or height, wrap around toget the depth value. So that
+      // edges of the maps match up nice when tiling.
+      int32_t height_sample_x = x;
+      if (height_sample_x == extents.width - 1) {
+        height_sample_x = 0;
+      }
+      int32_t height_sample_y = y;
+      if (height_sample_y == extents.height - 1) {
+        height_sample_y = 0;
+      }
+
+      map_vertices[v_index][1] = (float)get_image_grey(&map->height_map, height_sample_x, height_sample_y);
       map_vertices[v_index][2] = y * modifier;
     }
   }
 
   int32_t num_indices = 0;
-  int32_t section_width = width / MAP_X_SEGMENTS;
-  int32_t section_height = height / MAP_Y_SEGMENTS;
+  int32_t section_width = extents.width / MAP_X_SEGMENTS;
+  int32_t section_height = extents.height / MAP_Y_SEGMENTS;
   for (int32_t i_section = 0; i_section < MAP_SECTION_COUNT; ++i_section) {
     struct Rect rect = {.x = (i_section / MAP_X_SEGMENTS) * section_width,
                         .y = (i_section % MAP_Y_SEGMENTS) * section_height,
@@ -493,7 +521,7 @@ static void create_map_gl_data(struct Map *map) {
     for (int32_t i_lod = 0; i_lod < LOD_COUNT; ++i_lod) {
       section->lods[i_lod].offset = num_indices;
       int32_t num_lod_indices =
-          generate_lod_indices(map, divisor, rect, &index_buffer[num_indices],
+          generate_lod_indices(&extents, divisor, rect, &index_buffer[num_indices],
                                index_buffer_length - num_indices);
       section->lods[i_lod].num_indices = num_lod_indices;
       num_indices += num_lod_indices;
