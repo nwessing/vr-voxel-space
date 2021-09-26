@@ -62,8 +62,11 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
                            mat4 in_view_matrix) {
   glEnable(GL_DEPTH_TEST);
   glEnable(GL_CULL_FACE);
-  // Uncomment for wireframe
-  /* glPolygonMode(GL_FRONT_AND_BACK, GL_LINE); */
+  if (game->options.show_wireframe) {
+    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+  } else {
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+  }
   glClearColor(0.529f, 0.808f, 0.98f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -97,10 +100,14 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
   for (int32_t i = 0; i < 9; ++i) {
     int32_t x = (i / 3) - 1;
     int32_t z = (i % 3) - 1;
+    if (i != 4) {
+      continue;
+    }
 
-    // NOTE not sure why I need to subtract 1 from X and Z to make the seams disappear when
-    // tiling the map
-    vec3 translate = {x * (BASE_MAP_SIZE - 1.0f), 0.0f, z * (BASE_MAP_SIZE - 1.0f)};
+    // NOTE not sure why I need to subtract 1 from X and Z to make the seams
+    // disappear when tiling the map
+    vec3 translate = {x * (BASE_MAP_SIZE - 1.0f), 0.0f,
+                      z * (BASE_MAP_SIZE - 1.0f)};
     mat4 model = GLM_MAT4_IDENTITY_INIT;
     vec3 map_scaler = {camera->terrain_scale, camera->terrain_scale,
                        camera->terrain_scale};
@@ -117,7 +124,15 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
 
       // TODO needs to account for HMD position
       vec3 cam_terrain_position;
-      glm_vec3_mul(camera->position, CAMERA_TO_TERRAIN, cam_terrain_position);
+      /* glm_vec3_mul(camera->position, CAMERA_TO_TERRAIN,
+       * cam_terrain_position); */
+      glm_vec3_mul(
+          (vec3){
+              436.0f / 1024.0f,
+              200.0f / 255.0f,
+              54.0f / 1024.0f,
+          },
+          CAMERA_TO_TERRAIN, cam_terrain_position);
 
       vec3 section_center;
       glm_vec3_add(section->center, translate, section_center);
@@ -325,6 +340,10 @@ void update_game(struct Game *game, struct KeyboardState *keyboard,
     game->options.visualize_lod = !game->options.visualize_lod;
   }
 
+  if (is_key_just_pressed(game, 'v')) {
+    game->options.show_wireframe = !game->options.show_wireframe;
+  }
+
   for (int i = 0; i < 2; ++i) {
     if (game->controller[i].trigger < 0.1) {
       game->trigger_set[i] = true;
@@ -412,8 +431,9 @@ struct MapMeshExtents {
   int32_t height;
 };
 
-static int32_t generate_lod_indices(struct MapMeshExtents *map_mesh_extents, int32_t sample_divisor,
-                                    struct Rect rect, int32_t *index_buffer,
+static int32_t generate_lod_indices(struct MapMeshExtents *map_mesh_extents,
+                                    int32_t sample_divisor, struct Rect rect,
+                                    int32_t *index_buffer,
                                     int32_t buffer_size) {
   int32_t width = map_mesh_extents->width;
   int32_t height = map_mesh_extents->height;
@@ -422,28 +442,78 @@ static int32_t generate_lod_indices(struct MapMeshExtents *map_mesh_extents, int
 
   int32_t sample_width = rect.width / sample_divisor;
   int32_t sample_height = rect.height / sample_divisor;
-  for (int32_t sample_y = 0; sample_y < sample_width; ++sample_y) {
-    for (int32_t sample_x = 0; sample_x < sample_height; ++sample_x) {
+
+  // NOTE generate extra row and column on each side to have lods overlap and
+  // hide gaps
+  /* for (int32_t sample_y = -1; sample_y <= sample_height; ++sample_y) { */
+  /*   for (int32_t sample_x = -1; sample_x <= sample_width; ++sample_x) { */
+
+  for (int32_t sample_y = 0; sample_y < sample_height; ++sample_y) {
+    for (int32_t sample_x = 0; sample_x < sample_width; ++sample_x) {
       int32_t x = rect.x + (sample_x * sample_divisor);
       int32_t y = rect.y + (sample_y * sample_divisor);
-      if (x + sample_divisor >= width ||
+      if (x < 0 || y < 0 || x + sample_divisor >= width ||
           y + sample_divisor >= height) {
         continue;
       }
 
       int32_t v_index = ((y * width) + x);
 
-      assert(num_indices + 6 < buffer_size);
-      index_buffer[num_indices++] = v_index;
-      index_buffer[num_indices++] =
-          v_index + (width * sample_divisor);
-      index_buffer[num_indices++] = v_index + sample_divisor;
+      if (sample_divisor > 1 && (sample_x == 0 || /*sample_y == 0 ||*/
+                                 sample_x == sample_width - 1 /*||
+sample_y == sample_height - 1*/)) {
+        int32_t curr_sample_divisor = sample_divisor;
+        while (curr_sample_divisor > 1) {
+          assert(num_indices + 9 < buffer_size);
+          int32_t v_index2 = v_index;
+          int32_t top_left = v_index2;
+          int32_t top_right = top_left + curr_sample_divisor;
+          int32_t btm_left = top_left + (width * curr_sample_divisor); // 1
+          int32_t btm_right = btm_left + curr_sample_divisor;          // 1
+          int32_t new = top_left + (width * (curr_sample_divisor / 2));
+          if (sample_x == 0) {
+          } else {
+            /* int32_t tmp = top_left; */
+            /* top_left = top_right; */
+            /* top_right = tmp; */
 
-      index_buffer[num_indices++] =
-          v_index + (width * sample_divisor);
-      index_buffer[num_indices++] =
-          v_index + (width * sample_divisor) + sample_divisor;
-      index_buffer[num_indices++] = v_index + sample_divisor;
+            /* tmp = btm_left; */
+            /* btm_left = btm_right; */
+            /* btm_right = tmp; */
+            /* new = top_right */
+            new = top_right + (width * (curr_sample_divisor / 2));
+          }
+
+          index_buffer[num_indices++] = top_left;
+          index_buffer[num_indices++] = new;
+          index_buffer[num_indices++] = top_right;
+
+          if (sample_x == 0) {
+            index_buffer[num_indices++] = top_right;
+            index_buffer[num_indices++] = new;
+            index_buffer[num_indices++] = btm_right;
+          } else {
+            index_buffer[num_indices++] = btm_left;
+            index_buffer[num_indices++] = new;
+            index_buffer[num_indices++] = top_left;
+          }
+
+          index_buffer[num_indices++] = btm_left;
+          index_buffer[num_indices++] = btm_right;
+          index_buffer[num_indices++] = new;
+          curr_sample_divisor /= 2;
+        }
+      } else {
+        assert(num_indices + 6 < buffer_size);
+        index_buffer[num_indices++] = v_index;
+        index_buffer[num_indices++] = v_index + (width * sample_divisor);
+        index_buffer[num_indices++] = v_index + sample_divisor;
+
+        index_buffer[num_indices++] = v_index + (width * sample_divisor);
+        index_buffer[num_indices++] =
+            v_index + (width * sample_divisor) + sample_divisor;
+        index_buffer[num_indices++] = v_index + sample_divisor;
+      }
     }
   }
 
@@ -464,8 +534,8 @@ static void create_map_gl_data(struct Map *map) {
   // NOTE generate vertices for 1 past the width and height, so that maps
   // can be seamlessly tiled together
   struct MapMeshExtents extents = {
-    .width = map->height_map.width + 1,
-    .height = map->height_map.height + 1,
+      .width = map->height_map.width + 1,
+      .height = map->height_map.height + 1,
   };
 
   int32_t num_map_vertices = (extents.width * extents.height);
@@ -488,8 +558,8 @@ static void create_map_gl_data(struct Map *map) {
 
       map_vertices[v_index][0] = x * modifier;
 
-      // NOTE When sample 1 past the width or height, wrap around toget the depth value. So that
-      // edges of the maps match up nice when tiling.
+      // NOTE When sample 1 past the width or height, wrap around toget the
+      // depth value. So that edges of the maps match up nice when tiling.
       int32_t height_sample_x = x;
       if (height_sample_x == extents.width - 1) {
         height_sample_x = 0;
@@ -499,7 +569,8 @@ static void create_map_gl_data(struct Map *map) {
         height_sample_y = 0;
       }
 
-      map_vertices[v_index][1] = (float)get_image_grey(&map->height_map, height_sample_x, height_sample_y);
+      map_vertices[v_index][1] = (float)get_image_grey(
+          &map->height_map, height_sample_x, height_sample_y);
       map_vertices[v_index][2] = y * modifier;
     }
   }
@@ -520,9 +591,9 @@ static void create_map_gl_data(struct Map *map) {
     int32_t divisor = 1;
     for (int32_t i_lod = 0; i_lod < LOD_COUNT; ++i_lod) {
       section->lods[i_lod].offset = num_indices;
-      int32_t num_lod_indices =
-          generate_lod_indices(&extents, divisor, rect, &index_buffer[num_indices],
-                               index_buffer_length - num_indices);
+      int32_t num_lod_indices = generate_lod_indices(
+          &extents, divisor, rect, &index_buffer[num_indices],
+          index_buffer_length - num_indices);
       section->lods[i_lod].num_indices = num_lod_indices;
       num_indices += num_lod_indices;
       divisor *= 2;
@@ -696,6 +767,7 @@ int32_t game_init(struct Game *game, int32_t width, int32_t height) {
   create_gl_objects(game);
   game->map_index = 0;
   game->options.visualize_lod = false;
+  game->options.show_wireframe = false;
   for (int i = 0; i < 2; ++i) {
     game->trigger_set[i] = true;
   }

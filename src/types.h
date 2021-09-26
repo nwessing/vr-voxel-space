@@ -60,6 +60,7 @@ struct OpenGLData {
 
 struct GameOptions {
   bool visualize_lod;
+  bool show_wireframe;
   bool do_raycasting;
   bool render_stereo;
 };
