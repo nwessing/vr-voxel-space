@@ -469,6 +469,43 @@ static int32_t generate_stitching_indices(int32_t *index_buffer,
   return num_indices;
 }
 
+static int32_t
+generate_v_stitching_indices(int32_t *index_buffer, int32_t num_indices,
+                             int32_t buffer_size, int32_t v_index,
+                             int32_t sample_divisor_x, int32_t sample_divisor_y,
+                             int32_t sample_y, int32_t width) {
+  assert(num_indices + 9 < buffer_size);
+  int32_t v_index2 = v_index;
+  int32_t top_left = v_index2;
+  int32_t top_right = top_left + sample_divisor_x;
+  int32_t btm_left = top_left + (width * sample_divisor_y); // 1
+  int32_t btm_right = btm_left + sample_divisor_x;          // 1
+  int32_t new = top_left + (sample_divisor_x / 2);
+  if (sample_y == 0) {
+  } else {
+    new = btm_left + (sample_divisor_x / 2);
+  }
+
+  index_buffer[num_indices++] = top_left;
+  index_buffer[num_indices++] = btm_left;
+  index_buffer[num_indices++] = new;
+
+  if (sample_y == 0) {
+    index_buffer[num_indices++] = btm_left;
+    index_buffer[num_indices++] = btm_right;
+    index_buffer[num_indices++] = new;
+  } else {
+    index_buffer[num_indices++] = top_right;
+    index_buffer[num_indices++] = top_left;
+    index_buffer[num_indices++] = new;
+  }
+
+  index_buffer[num_indices++] = top_right;
+  index_buffer[num_indices++] = new;
+  index_buffer[num_indices++] = btm_right;
+  return num_indices;
+}
+
 static int32_t generate_lod_indices(struct MapMeshExtents *map_mesh_extents,
                                     int32_t sample_divisor, struct Rect rect,
                                     int32_t *index_buffer,
@@ -528,6 +565,30 @@ sample_y == sample_height - 1*/)) {
         /* } */
         /* v_index += 2; */
         /* } */
+      } else if (sample_divisor > 1 &&
+                 (sample_y == 0 || sample_y == sample_height - 1)) {
+        if (sample_divisor == 4) {
+          int32_t big_triangle_v_index =
+              sample_y == 0 ? v_index + (2 * width) : v_index;
+          num_indices = generate_v_stitching_indices(
+              index_buffer, num_indices, buffer_size, big_triangle_v_index, 4,
+              2, sample_y, width);
+
+          int32_t little_triangle_top_v_index =
+              sample_y == 0 ? v_index : v_index + (2 * width);
+          num_indices = generate_v_stitching_indices(
+              index_buffer, num_indices, buffer_size,
+              little_triangle_top_v_index, 2, 2, sample_y, width);
+
+          num_indices = generate_v_stitching_indices(
+              index_buffer, num_indices, buffer_size,
+              little_triangle_top_v_index + 2, 2, 2, sample_y, width);
+        } else if (sample_divisor == 2) {
+          num_indices = generate_v_stitching_indices(index_buffer, num_indices,
+                                                     buffer_size, v_index, 2, 2,
+                                                     sample_y, width);
+        }
+
       } else {
         assert(num_indices + 6 < buffer_size);
         index_buffer[num_indices++] = v_index;
