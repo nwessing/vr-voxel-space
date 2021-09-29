@@ -91,7 +91,7 @@ int main(void) {
     return 1;
   }
 
-  SDL_GL_SetSwapInterval(0);
+  SDL_GL_SetSwapInterval(1);
   info("PITCH: %i\n", game->frame.pitch);
 
   bool quit = false;
@@ -166,7 +166,8 @@ int main(void) {
                     0.01f, 1000.0f, projection_matrix);
 
     mat4 view_matrix = GLM_MAT4_IDENTITY_INIT;
-    glm_lookat((vec3) {0.0f, 0.0f, 0.0f}, (vec3) {0.0f, 0.0f, -1.0f}, (vec3) {0.0f, 1.0f, 0.0f}, view_matrix);
+    glm_lookat((vec3){0.0f, 0.0f, 0.0f}, (vec3){0.0f, 0.0f, -1.0f},
+               (vec3){0.0f, 1.0f, 0.0f}, view_matrix);
     render_game(game, projection_matrix, view_matrix);
 
     SDL_GL_SwapWindow(window);
