@@ -62,11 +62,13 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
                            mat4 in_view_matrix) {
   glEnable(GL_DEPTH_TEST);
   glEnable(GL_CULL_FACE);
+#ifdef GL_POLYGON_MODE
   if (game->options.show_wireframe) {
     glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
   } else {
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
   }
+#endif
   glClearColor(0.529f, 0.808f, 0.98f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -100,9 +102,6 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
   for (int32_t i = 0; i < 9; ++i) {
     int32_t x = (i / 3) - 1;
     int32_t z = (i % 3) - 1;
-    if (i != 4) {
-      continue;
-    }
 
     // NOTE not sure why I need to subtract 1 from X and Z to make the seams
     // disappear when tiling the map
@@ -124,15 +123,7 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
 
       // TODO needs to account for HMD position
       vec3 cam_terrain_position;
-      /* glm_vec3_mul(camera->position, CAMERA_TO_TERRAIN,
-       * cam_terrain_position); */
-      glm_vec3_mul(
-          (vec3){
-              436.0f / 1024.0f,
-              200.0f / 255.0f,
-              54.0f / 1024.0f,
-          },
-          CAMERA_TO_TERRAIN, cam_terrain_position);
+      glm_vec3_mul(camera->position, CAMERA_TO_TERRAIN, cam_terrain_position);
 
       vec3 section_center;
       glm_vec3_add(section->center, translate, section_center);
@@ -417,6 +408,10 @@ void update_game(struct Game *game, struct KeyboardState *keyboard,
     float half = game->camera.terrain_scale / 2.0f;
     game->camera.terrain_scale += half * elapsed;
   }
+
+  /* printf("pos = %f, %f, %f, rot = %f\n", game->camera.position[0], */
+  /*        game->camera.position[1], game->camera.position[2], */
+  /*        game->camera.pitch); */
 }
 
 struct Rect {
@@ -446,129 +441,6 @@ static int32_t generate_indices(int32_t *index_buffer, int32_t num_indices,
   return num_indices;
 }
 
-/* static int32_t */
-/* generate_br_sitching_indices(int32_t *index_buffer, int32_t num_indices, */
-/*                              int32_t buffer_size, int32_t v_index, */
-/*                              int32_t sample_divisor_x, int32_t
- * sample_divisor_y, */
-/*                              int32_t width) { */
-
-/*   assert(num_indices + 18 < buffer_size); */
-/*   int32_t v_index2 = v_index; */
-/*   int32_t top_left = v_index2; */
-/*   int32_t top_right = top_left + sample_divisor_x; */
-/*   int32_t btm_left = top_left + (width * sample_divisor_y); // 1 */
-/*   int32_t btm_right = btm_left + sample_divisor_x;          // 1 */
-/*   int32_t center = */
-/*       top_left + ((sample_divisor_y / 2) * width) + (sample_divisor_x / 2);
- */
-/*   int32_t right_mid = top_right + ((sample_divisor_y / 2) * width); */
-/*   int32_t btm_center = btm_left + (sample_divisor_x / 2); */
-
-/*   index_buffer[num_indices++] = top_left; */
-/*   index_buffer[num_indices++] = center; */
-/*   index_buffer[num_indices++] = btm_left; */
-
-/*   index_buffer[num_indices++] = top_left; */
-/*   index_buffer[num_indices++] = top_right; */
-/*   index_buffer[num_indices++] = center; */
-
-/*   index_buffer[num_indices++] = center; */
-/*   index_buffer[num_indices++] = top_right; */
-/*   index_buffer[num_indices++] = right_mid; */
-
-/*   index_buffer[num_indices++] = center; */
-/*   index_buffer[num_indices++] = right_mid; */
-/*   index_buffer[num_indices++] = btm_center; */
-
-/*   index_buffer[num_indices++] = right_mid; */
-/*   index_buffer[num_indices++] = btm_right; */
-/*   index_buffer[num_indices++] = btm_center; */
-
-/*   index_buffer[num_indices++] = center; */
-/*   index_buffer[num_indices++] = btm_center; */
-/*   index_buffer[num_indices++] = btm_left; */
-/*   return num_indices; */
-/* } */
-
-/* static int32_t generate_stitching_indices(int32_t *index_buffer, */
-/*                                           int32_t num_indices, */
-/*                                           int32_t buffer_size, int32_t
- * v_index, */
-/*                                           int32_t sample_divisor_x, */
-/*                                           int32_t sample_divisor_y, */
-/*                                           int32_t sample_x, int32_t width) {
- */
-/*   assert(num_indices + 9 < buffer_size); */
-/*   int32_t v_index2 = v_index; */
-/*   int32_t top_left = v_index2; */
-/*   int32_t top_right = top_left + sample_divisor_x; */
-/*   int32_t btm_left = top_left + (width * sample_divisor_y); // 1 */
-/*   int32_t btm_right = btm_left + sample_divisor_x;          // 1 */
-/*   int32_t new = top_left + (width * (sample_divisor_y / 2)); */
-/*   if (sample_x == 0) { */
-/*   } else { */
-/*     new = top_right + (width * (sample_divisor_y / 2)); */
-/*   } */
-
-/*   index_buffer[num_indices++] = top_left; */
-/*   index_buffer[num_indices++] = new; */
-/*   index_buffer[num_indices++] = top_right; */
-
-/*   if (sample_x == 0) { */
-/*     index_buffer[num_indices++] = top_right; */
-/*     index_buffer[num_indices++] = new; */
-/*     index_buffer[num_indices++] = btm_right; */
-/*   } else { */
-/*     index_buffer[num_indices++] = btm_left; */
-/*     index_buffer[num_indices++] = new; */
-/*     index_buffer[num_indices++] = top_left; */
-/*   } */
-
-/*   index_buffer[num_indices++] = btm_left; */
-/*   index_buffer[num_indices++] = btm_right; */
-/*   index_buffer[num_indices++] = new; */
-/*   return num_indices; */
-/* } */
-
-/* static int32_t */
-/* generate_v_stitching_indices(int32_t *index_buffer, int32_t num_indices, */
-/*                              int32_t buffer_size, int32_t v_index, */
-/*                              int32_t sample_divisor_x, int32_t
- * sample_divisor_y, */
-/*                              int32_t sample_y, int32_t width) { */
-/*   assert(num_indices + 9 < buffer_size); */
-/*   int32_t v_index2 = v_index; */
-/*   int32_t top_left = v_index2; */
-/*   int32_t top_right = top_left + sample_divisor_x; */
-/*   int32_t btm_left = top_left + (width * sample_divisor_y); // 1 */
-/*   int32_t btm_right = btm_left + sample_divisor_x;          // 1 */
-/*   int32_t new = top_left + (sample_divisor_x / 2); */
-/*   if (sample_y == 0) { */
-/*   } else { */
-/*     new = btm_left + (sample_divisor_x / 2); */
-/*   } */
-
-/*   index_buffer[num_indices++] = top_left; */
-/*   index_buffer[num_indices++] = btm_left; */
-/*   index_buffer[num_indices++] = new; */
-
-/*   if (sample_y == 0) { */
-/*     index_buffer[num_indices++] = btm_left; */
-/*     index_buffer[num_indices++] = btm_right; */
-/*     index_buffer[num_indices++] = new; */
-/*   } else { */
-/*     index_buffer[num_indices++] = top_right; */
-/*     index_buffer[num_indices++] = top_left; */
-/*     index_buffer[num_indices++] = new; */
-/*   } */
-
-/*   index_buffer[num_indices++] = top_right; */
-/*   index_buffer[num_indices++] = new; */
-/*   index_buffer[num_indices++] = btm_right; */
-/*   return num_indices; */
-/* } */
-
 static int32_t generate_lod_indices(struct MapMeshExtents *map_mesh_extents,
                                     int32_t sample_divisor, struct Rect rect,
                                     int32_t *index_buffer,
@@ -580,11 +452,6 @@ static int32_t generate_lod_indices(struct MapMeshExtents *map_mesh_extents,
 
   int32_t sample_width = rect.width / sample_divisor;
   int32_t sample_height = rect.height / sample_divisor;
-
-  // NOTE generate extra row and column on each side to have lods overlap and
-  // hide gaps
-  /* for (int32_t sample_y = -1; sample_y <= sample_height; ++sample_y) { */
-  /*   for (int32_t sample_x = -1; sample_x <= sample_width; ++sample_x) { */
 
   for (int32_t sample_y = 0; sample_y < sample_height; ++sample_y) {
     for (int32_t sample_x = 0; sample_x < sample_width; ++sample_x) {
@@ -601,132 +468,155 @@ static int32_t generate_lod_indices(struct MapMeshExtents *map_mesh_extents,
           (sample_x == 0 || sample_y == 0 || sample_x == sample_width - 1 ||
            sample_y == sample_height - 1)) {
 
-        if ((sample_x == 0 && sample_y != 0) || sample_x == sample_width - 1) {
-          int32_t pivot = v_index;
-          int32_t v_begin = v_index + sample_divisor;
-          int32_t direction = 1;
-          if (sample_x == 0) {
-            direction = -1;
-            v_begin = v_index;
-            pivot += sample_divisor;
-          }
+        if (sample_x == 0 && sample_y == 0) {
+          // Top-left corner
+          uint32_t pivot = v_index + sample_divisor + (width * sample_divisor);
+          uint32_t v_begin = v_index;
 
           for (int32_t i = 1; i <= sample_divisor; ++i) {
             assert(num_indices + 3 < buffer_size);
-            index_buffer[num_indices++] =
-                v_begin + (direction * (i - 1) * width);
+            index_buffer[num_indices++] = v_begin + (i * width);
             index_buffer[num_indices++] = pivot;
-            index_buffer[num_indices++] = v_begin + (direction * i * width);
-          }
-
-          if (sample_y != 1 || sample_x != 0) {
-            assert(num_indices + 3 < buffer_size);
-            index_buffer[num_indices++] =
-                v_begin + (direction * sample_divisor * width);
-            index_buffer[num_indices++] = pivot;
-            index_buffer[num_indices++] =
-                pivot + (direction * width * sample_divisor);
-          }
-        }
-
-        if ((sample_y == 0 && sample_x != 0) || sample_y == sample_height - 1) {
-          int32_t pivot = v_index;
-          int32_t v_begin = v_index + (sample_divisor * width);
-          int32_t direction = 1;
-          if (sample_y == 0) {
-            direction = -1;
-            v_begin = v_index;
-            pivot += (sample_divisor * width);
+            index_buffer[num_indices++] = v_begin + ((i - 1) * width);
           }
 
           for (int32_t i = 1; i <= sample_divisor; ++i) {
             assert(num_indices + 3 < buffer_size);
             index_buffer[num_indices++] = pivot;
-            index_buffer[num_indices++] = v_begin + (direction * (i - 1));
-            index_buffer[num_indices++] = v_begin + (direction * i);
+            index_buffer[num_indices++] = v_begin + i;
+            index_buffer[num_indices++] = v_begin + (i - 1);
           }
-          if (sample_x != 1 || sample_y != 0) {
+
+        } else if (sample_x == 0 && sample_y == sample_height - 1) {
+          // Bottom-left corner
+          uint32_t pivot = v_index + sample_divisor;
+          uint32_t v_begin = v_index;
+
+          for (int32_t i = 1; i <= sample_divisor; ++i) {
             assert(num_indices + 3 < buffer_size);
-            index_buffer[num_indices++] = pivot + (direction * sample_divisor);
+            index_buffer[num_indices++] = v_begin + (i * width);
+            index_buffer[num_indices++] = pivot;
+            index_buffer[num_indices++] = v_begin + ((i - 1) * width);
+          }
+
+          for (int32_t i = 1; i <= sample_divisor; ++i) {
+            assert(num_indices + 3 < buffer_size);
             index_buffer[num_indices++] = pivot;
             index_buffer[num_indices++] =
-                v_begin + (direction * sample_divisor);
+                v_begin + (sample_divisor * width) + (i - 1);
+            index_buffer[num_indices++] =
+                v_begin + (sample_divisor * width) + i;
+          }
+
+        } else if (sample_x == sample_width - 1 && sample_y == 0) {
+          // Top-right corner
+          uint32_t pivot = v_index + (width * sample_divisor);
+          uint32_t v_begin = v_index + sample_divisor;
+
+          for (int32_t i = 1; i <= sample_divisor; ++i) {
+            assert(num_indices + 3 < buffer_size);
+            index_buffer[num_indices++] = v_begin - i;
+            index_buffer[num_indices++] = pivot;
+            index_buffer[num_indices++] = v_begin - (i - 1);
+          }
+
+          for (int32_t i = 1; i <= sample_divisor; ++i) {
+            assert(num_indices + 3 < buffer_size);
+            index_buffer[num_indices++] = pivot;
+            index_buffer[num_indices++] = v_begin + (i * width);
+            index_buffer[num_indices++] = v_begin + ((i - 1) * width);
+          }
+        } else if (sample_x == sample_width - 1 &&
+                   sample_y == sample_height - 1) {
+          // Bottom-right corner
+          uint32_t pivot = v_index;
+          uint32_t v_begin =
+              v_index + (sample_divisor * width) + sample_divisor;
+
+          for (int32_t i = 1; i <= sample_divisor; ++i) {
+            assert(num_indices + 3 < buffer_size);
+            index_buffer[num_indices++] = v_begin - (i - 1);
+            index_buffer[num_indices++] = pivot;
+            index_buffer[num_indices++] = v_begin - i;
+          }
+
+          for (int32_t i = 1; i <= sample_divisor; ++i) {
+            assert(num_indices + 3 < buffer_size);
+            index_buffer[num_indices++] = pivot;
+            index_buffer[num_indices++] = v_begin - ((i - 1) * width);
+            index_buffer[num_indices++] = v_begin - (i * width);
+          }
+        } else {
+          // Strips on left and right sides
+          if (sample_x == 0 || sample_x == sample_width - 1) {
+            int32_t pivot = v_index;
+            int32_t v_begin = v_index + sample_divisor;
+            int32_t direction = 1;
+            if (sample_x == 0) {
+              pivot = v_index + sample_divisor;
+              v_begin = v_index + (width * sample_divisor);
+              direction = -1;
+            }
+
+            for (int32_t i = 1; i <= sample_divisor; ++i) {
+              assert(num_indices + 3 < buffer_size);
+              index_buffer[num_indices++] = pivot;
+              index_buffer[num_indices++] = v_begin + (direction * i * width);
+              index_buffer[num_indices++] =
+                  v_begin + (direction * (i - 1) * width);
+            }
+
+            if (direction == 1) {
+              assert(num_indices + 3 < buffer_size);
+              index_buffer[num_indices++] = pivot;
+              index_buffer[num_indices++] = pivot + (width * sample_divisor);
+              index_buffer[num_indices++] =
+                  pivot + (width * sample_divisor) + sample_divisor;
+            } else {
+              assert(num_indices + 3 < buffer_size);
+              index_buffer[num_indices++] = pivot;
+              index_buffer[num_indices++] =
+                  pivot + (width * sample_divisor) - sample_divisor;
+              index_buffer[num_indices++] = pivot + (width * sample_divisor);
+            }
+          }
+
+          // Top and bottom strips
+          if (sample_y == 0 || sample_y == sample_height - 1) {
+            int32_t pivot = v_index;
+            int32_t v_begin = v_index + (sample_divisor * width);
+            int32_t direction = 1;
+            if (sample_y == 0) {
+              direction = -1;
+              v_begin = v_index + sample_divisor;
+              pivot = v_index + (sample_divisor * width);
+            }
+
+            for (int32_t i = 1; i <= sample_divisor; ++i) {
+              assert(num_indices + 3 < buffer_size);
+              index_buffer[num_indices++] = pivot;
+              index_buffer[num_indices++] = v_begin + (direction * (i - 1));
+              index_buffer[num_indices++] = v_begin + (direction * i);
+            }
+
+            if (direction == 1) {
+              assert(num_indices + 3 < buffer_size);
+              index_buffer[num_indices++] = pivot;
+              index_buffer[num_indices++] =
+                  pivot + sample_divisor + (width * sample_divisor);
+              index_buffer[num_indices++] = pivot + sample_divisor;
+            } else {
+              index_buffer[num_indices++] = pivot;
+              index_buffer[num_indices++] = pivot + sample_divisor;
+              index_buffer[num_indices++] =
+                  pivot + sample_divisor - (width * sample_divisor);
+            }
           }
         }
-
-        // TODO ignore
-
-        /* if (sample_divisor == 4) { */
-        /*   int32_t big_triangle_v_index = sample_x == 0 ? v_index + 2 :
-         * v_index; */
-        /*   num_indices = generate_stitching_indices( */
-        /*       index_buffer, num_indices, buffer_size, big_triangle_v_index,
-         * 2, */
-        /*       4, sample_x, width); */
-
-        /*   int32_t little_triangle_top_v_index = */
-        /*       sample_x == 0 ? v_index : v_index + 2; */
-        /*   num_indices = generate_stitching_indices( */
-        /*       index_buffer, num_indices, buffer_size, */
-        /*       little_triangle_top_v_index, 2, 2, sample_x, width); */
-
-        /*   if (sample_x == sample_width - 1 && sample_y == sample_height - 1)
-         * { */
-        /*     num_indices = generate_br_sitching_indices( */
-        /*         index_buffer, num_indices, buffer_size, */
-        /*         little_triangle_top_v_index + (2 * width), 2, 2, width); */
-        /*   } else { */
-        /*     num_indices = generate_stitching_indices( */
-        /*         index_buffer, num_indices, buffer_size, */
-        /*         little_triangle_top_v_index + (2 * width), 2, 2, sample_x, */
-        /*         width); */
-        /*   } */
-        /* } else if (sample_divisor == 2) { */
-        /*   num_indices = */
-        /*       generate_stitching_indices(index_buffer, num_indices,
-         * buffer_size, */
-        /*                                  v_index, 2, 2, sample_x, width); */
-        /* } */
-
-        /* } else if (sample_divisor > 1 && */
-        /*            (sample_y == 0 || sample_y == sample_height - 1)) { */
-        /* if (sample_divisor == 4) { */
-        /*   int32_t big_triangle_v_index = */
-        /*       sample_y == 0 ? v_index + (2 * width) : v_index; */
-        /*   num_indices = generate_v_stitching_indices( */
-        /*       index_buffer, num_indices, buffer_size, big_triangle_v_index,
-         * 4, */
-        /*       2, sample_y, width); */
-
-        /*   int32_t little_triangle_top_v_index = */
-        /*       sample_y == 0 ? v_index : v_index + (2 * width); */
-        /*   num_indices = generate_v_stitching_indices( */
-        /*       index_buffer, num_indices, buffer_size, */
-        /*       little_triangle_top_v_index, 2, 2, sample_y, width); */
-
-        /*   num_indices = generate_v_stitching_indices( */
-        /*       index_buffer, num_indices, buffer_size, */
-        /*       little_triangle_top_v_index + 2, 2, 2, sample_y, width); */
-        /* } else if (sample_divisor == 2) { */
-        /*   num_indices = generate_v_stitching_indices(index_buffer,
-         * num_indices, */
-        /*                                              buffer_size, v_index, 2,
-         * 2, */
-        /*                                              sample_y, width); */
-        /* } */
 
       } else {
         num_indices = generate_indices(index_buffer, num_indices, buffer_size,
                                        v_index, sample_divisor, width);
-        /* assert(num_indices + 6 < buffer_size); */
-        /* index_buffer[num_indices++] = v_index; */
-        /* index_buffer[num_indices++] = v_index + (width * sample_divisor); */
-        /* index_buffer[num_indices++] = v_index + sample_divisor; */
-
-        /* index_buffer[num_indices++] = v_index + (width * sample_divisor); */
-        /* index_buffer[num_indices++] = */
-        /*     v_index + (width * sample_divisor) + sample_divisor; */
-        /* index_buffer[num_indices++] = v_index + sample_divisor; */
       }
     }
   }
@@ -961,22 +851,25 @@ int32_t game_init(struct Game *game, int32_t width, int32_t height) {
 
   create_frame_buffer(game, width, height);
 
-  game->camera = (struct Camera){.viewport_width = width,
-                                 .viewport_height = height,
-                                 .distance = 800,
-                                 .quat = GLM_QUAT_IDENTITY_INIT,
-                                 .pitch = M_PI,
-                                 .horizon = game->frame.height / 2,
-                                 .scale_height = game->frame.height * 0.35,
-                                 .position =
-                                     {
-                                         436.0f / 1024.0f,
-                                         200.0f / 255.0f,
-                                         54.0f / 1024.0f,
-                                     },
-                                 .terrain_scale = 0.5f,
-                                 .clip = .06f * game->frame.width,
-                                 .is_z_relative_to_ground = false};
+  game->camera =
+      (struct Camera){.viewport_width = width,
+                      .viewport_height = height,
+                      .distance = 800,
+                      .quat = GLM_QUAT_IDENTITY_INIT,
+                      .horizon = game->frame.height / 2,
+                      .scale_height = game->frame.height * 0.35,
+                      /* .position = {0.739819, 0.292814, 0.241042}, */
+                      /* .pitch = 4.033807, */
+                      .position =
+                          {
+                              436.0f / 1024.0f,
+                              200.0f / 255.0f,
+                              54.0f / 1024.0f,
+                          },
+                      .pitch = M_PI,
+                      .terrain_scale = 0.5f,
+                      .clip = .06f * game->frame.width,
+                      .is_z_relative_to_ground = false};
 
   create_gl_objects(game);
   game->map_index = 0;
