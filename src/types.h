@@ -117,6 +117,8 @@ struct MapSection {
 struct Map {
   struct ImageBuffer color_map;
   struct ImageBuffer height_map;
+  // multiply by this value to get 1024
+  float modifier;
   // int width;
   // int height;
   GLuint map_vbo;

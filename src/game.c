@@ -105,8 +105,8 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
 
     // NOTE not sure why I need to subtract 1 from X and Z to make the seams
     // disappear when tiling the map
-    vec3 translate = {x * (BASE_MAP_SIZE - 1.0f), 0.0f,
-                      z * (BASE_MAP_SIZE - 1.0f)};
+    vec3 translate = {x * (BASE_MAP_SIZE - map->modifier), 0.0f,
+                      z * (BASE_MAP_SIZE - map->modifier)};
     mat4 model = GLM_MAT4_IDENTITY_INIT;
     vec3 map_scaler = {camera->terrain_scale, camera->terrain_scale,
                        camera->terrain_scale};
@@ -647,11 +647,10 @@ static void create_map_gl_data(struct Map *map) {
 
   int32_t indices_per_vert = 6;
 
+  float modifier = map->modifier;
+
   int32_t index_buffer_length = num_map_vertices * indices_per_vert * LOD_COUNT;
   int32_t *index_buffer = malloc(sizeof(int32_t) * index_buffer_length);
-
-  // Convert 512x512 maps to match space of 1024x1024 maps
-  float modifier = (float)BASE_MAP_SIZE / extents.width;
 
   for (int32_t y = 0; y < extents.height; ++y) {
     for (int32_t x = 0; x < extents.width; ++x) {
@@ -662,7 +661,7 @@ static void create_map_gl_data(struct Map *map) {
 
       map_vertices[v_index][0] = x * modifier;
 
-      // NOTE When sample 1 past the width or height, wrap around toget the
+      // NOTE When sampling 1 past the width or height, wrap around to get the
       // depth value. So that edges of the maps match up nice when tiling.
       int32_t height_sample_x = x;
       if (height_sample_x == extents.width - 1) {
@@ -802,6 +801,9 @@ static int32_t load_map(struct Map *map, struct MapEntry *map_entry) {
     error("Could not load height map");
     return GAME_ERROR;
   }
+
+  // Add on to the height map width to account for the extra column we add
+  map->modifier = (float)BASE_MAP_SIZE / (map->height_map.width + 1);
 
   return GAME_SUCCESS;
 }
