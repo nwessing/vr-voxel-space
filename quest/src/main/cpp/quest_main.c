@@ -658,8 +658,13 @@ void android_main(struct android_app *android_app) {
 
     // Don't update on first render
     if (last_predicted_display_time > 0) {
+      vec3 hmd_position = {
+          tracking.HeadPose.Pose.Position.x,
+          tracking.HeadPose.Pose.Position.y,
+          tracking.HeadPose.Pose.Position.z,
+      };
       update_game(game, &keyboard_state, &left_controller, &right_controller,
-                  delta);
+                  hmd_position, delta);
     }
 
     const ovrLayerProjection2 layer =

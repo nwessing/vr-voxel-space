@@ -149,7 +149,8 @@ int main(void) {
       }
     }
 
-    update_game(game, &key_state, &left_controller, &right_controller, elapsed);
+    update_game(game, &key_state, &left_controller, &right_controller,
+                GLM_VEC3_ZERO, elapsed);
 #ifdef INCLUDE_LIBOVR
     render_buffer_to_hmd(&vr, &game.frame, &gl, &color_map, &height_map,
                          &camera, num_frames);

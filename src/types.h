@@ -43,6 +43,7 @@ struct Camera {
   int32_t horizon;
   int32_t scale_height;
   vec3 position;
+  vec3 last_hmd_position;
   float terrain_scale;
   int32_t clip;
   bool is_z_relative_to_ground;
@@ -119,8 +120,6 @@ struct Map {
   struct ImageBuffer height_map;
   // multiply by this value to get 1024
   float modifier;
-  // int width;
-  // int height;
   GLuint map_vbo;
   GLuint map_vbo_indices;
   GLuint map_vao;

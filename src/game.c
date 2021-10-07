@@ -1,6 +1,8 @@
 #include "game.h"
 #include "assert.h"
 #include "cglm/affine.h"
+#include "cglm/mat4.h"
+#include "cglm/vec3.h"
 #include "file.h"
 #include "image.h"
 #include "math.h"
@@ -12,7 +14,7 @@
 #include "util.h"
 
 #define BASE_MAP_SIZE 1024
-static vec3 CAMERA_TO_TERRAIN = {BASE_MAP_SIZE, 255.0, BASE_MAP_SIZE};
+static vec3 CAMERA_TO_TERRAIN = {BASE_MAP_SIZE, BASE_MAP_SIZE, BASE_MAP_SIZE};
 
 static struct MapEntry maps[MAP_COUNT] = {
     {"maps/C1W.png", "maps/D1.png"},   {"maps/C2W.png", "maps/D2.png"},
@@ -30,6 +32,15 @@ static struct MapEntry maps[MAP_COUNT] = {
     {"maps/C24W.png", "maps/D24.png"}, {"maps/C25W.png", "maps/D25.png"},
     {"maps/C26W.png", "maps/D18.png"}, {"maps/C27W.png", "maps/D15.png"},
     {"maps/C28W.png", "maps/D25.png"}, {"maps/C29W.png", "maps/D16.png"}};
+
+static void hmd_position_to_world_position(struct Game *game, vec3 hmd_position,
+                                           vec3 out) {
+
+  float scale_factor = 1.0f / game->camera.terrain_scale;
+  vec3 scaler = {scale_factor, scale_factor, scale_factor};
+  glm_vec3_div(scaler, CAMERA_TO_TERRAIN, out);
+  glm_vec3_mul(out, hmd_position, out);
+}
 
 // Find the direction vector indicating where the camera is pointing
 static void get_forward_vector(struct Camera *camera, vec3 direction,
@@ -83,6 +94,10 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
   glm_rotate(view_matrix, -camera->pitch, (vec3){0.0, 1.0, 0.0});
   glm_translate(view_matrix, camera_offset);
 
+  // HMD position is built into the view matrix but we already accounted
+  // for it in the position of the camera.
+  glm_translate(in_view_matrix, camera->last_hmd_position);
+
   glm_mat4_mul(in_view_matrix, view_matrix, view_matrix);
 
   struct OpenGLData *gl = &game->gl;
@@ -102,6 +117,9 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
   for (int32_t i = 0; i < 9; ++i) {
     int32_t x = (i / 3) - 1;
     int32_t z = (i % 3) - 1;
+    /* if (i != 4) { */
+    /*   continue; */
+    /* } */
 
     // NOTE not sure why I need to subtract 1 from X and Z to make the seams
     // disappear when tiling the map
@@ -121,7 +139,6 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
 
       struct MapSection *section = &map->sections[i_section];
 
-      // TODO needs to account for HMD position
       vec3 cam_terrain_position;
       glm_vec3_mul(camera->position, CAMERA_TO_TERRAIN, cam_terrain_position);
 
@@ -263,7 +280,8 @@ static inline float get_ground_height(struct ImageBuffer *height_map, float x,
 
 void update_game(struct Game *game, struct KeyboardState *keyboard,
                  struct ControllerState *left_controller,
-                 struct ControllerState *right_controller, float elapsed) {
+                 struct ControllerState *right_controller, vec3 hmd_position,
+                 float elapsed) {
   game->prev_keyboard = game->keyboard;
   game->keyboard = *keyboard;
 
@@ -273,6 +291,29 @@ void update_game(struct Game *game, struct KeyboardState *keyboard,
       game->controller[RIGHT_CONTROLLER_INDEX];
   game->controller[LEFT_CONTROLLER_INDEX] = *left_controller;
   game->controller[RIGHT_CONTROLLER_INDEX] = *right_controller;
+
+  {
+    // Update position based on the the current HMD position
+
+    // Use the different between current position and last reported position
+    vec3 hmd_difference;
+    glm_vec3_sub(hmd_position, game->camera.last_hmd_position, hmd_difference);
+
+    // Scale the hmd position different to world units
+    vec3 hmd_world_pos;
+    hmd_position_to_world_position(game, hmd_difference, hmd_world_pos);
+
+    // Rotate the position difference by the user specified rotation angled
+    // so that walking forward moves the direction the camera points
+    mat4 cam_rotation;
+    versor manual_rotation_quat;
+    glm_quat(manual_rotation_quat, game->camera.pitch, 0.0f, 1.0f, 0.0f);
+    glm_quat_mat4(manual_rotation_quat, cam_rotation);
+    glm_mat4_mulv3(cam_rotation, hmd_world_pos, 1.0f, hmd_world_pos);
+
+    glm_vec3_add(game->camera.position, hmd_world_pos, game->camera.position);
+    glm_vec3_copy(hmd_position, game->camera.last_hmd_position);
+  }
 
   float forward_movement =
       read_axis(game->controller[LEFT_CONTROLLER_INDEX].joy_stick.y,
@@ -344,17 +385,24 @@ void update_game(struct Game *game, struct KeyboardState *keyboard,
   struct Map *map = &game->maps[game->map_index];
   float prev_ground_height = get_ground_height(
       &map->height_map, game->camera.position[0], game->camera.position[2]);
-  vec3 direction_intensities = {horizontal_movement, vertical_movement,
-                                -forward_movement};
+
   vec3 movement;
   {
+
+    vec3 direction_intensities = {horizontal_movement, vertical_movement,
+                                  -forward_movement};
+    glm_vec3_normalize(direction_intensities);
+
+    float y_only_movement = direction_intensities[1];
+
     vec3 forward;
-    get_forward_vector(&game->camera, direction_intensities, true, forward);
+    direction_intensities[1] = .0f;
+    get_forward_vector(&game->camera, direction_intensities, false, forward);
 
     float units_per_second = 0.25f;
     float delta_units = units_per_second * elapsed;
     glm_vec3_scale(forward, delta_units, movement);
-    glm_vec3_clamp(movement, -delta_units, delta_units);
+    movement[1] += y_only_movement * delta_units;
   }
 
   glm_vec3_add(game->camera.position, movement, game->camera.position);
@@ -865,11 +913,12 @@ int32_t game_init(struct Game *game, int32_t width, int32_t height) {
                       .position =
                           {
                               436.0f / 1024.0f,
-                              200.0f / 255.0f,
+                              200.0f / 1024.0f,
                               54.0f / 1024.0f,
                           },
                       .pitch = M_PI,
-                      .terrain_scale = 0.5f,
+                      .last_hmd_position = {0.0f, 0.0f, 0.0f},
+                      .terrain_scale = 0.05f,
                       .clip = .06f * game->frame.width,
                       .is_z_relative_to_ground = false};
 
