@@ -3,6 +3,8 @@
 #include "stdint.h"
 #include <cglm/cglm.h>
 
+#define BASE_MAP_SIZE 1024
+
 #define GAME_SUCCESS 0
 #define GAME_ERROR 1
 
@@ -32,21 +34,27 @@ struct Color {
   uint8_t a;
 };
 
+struct RaytraceCamera {
+  int32_t distance;
+  int32_t horizon;
+  int32_t clip;
+};
+
 struct Camera {
   int32_t viewport_width;
   int32_t viewport_height;
-  int32_t distance;
-  float yaw;
   float pitch;
-  float roll;
   versor quat;
-  int32_t horizon;
   int32_t scale_height;
   vec3 position;
   vec3 last_hmd_position;
   float terrain_scale;
-  int32_t clip;
   bool is_z_relative_to_ground;
+  struct RaytraceCamera ray;
+  // Derived data
+  vec3 up;
+  vec3 right;
+  vec3 front;
 };
 
 struct OpenGLData {
@@ -64,6 +72,7 @@ struct GameOptions {
   bool show_wireframe;
   bool do_raycasting;
   bool render_stereo;
+  bool visualize_frustum;
 };
 
 // NOTE: Represent states of all keys for ASCII codes 32-127
@@ -142,4 +151,22 @@ struct Game {
   struct ControllerState prev_controller[2];
   struct ControllerState controller[2];
   bool trigger_set[2];
+};
+
+struct DecomposedProjectionMatrix {
+  float near, far, bottom, top, left, right, field_of_view, aspect_ratio;
+};
+
+struct Plane {
+  vec3 normal;
+  float distance;
+};
+
+struct Frustum {
+  struct Plane top;
+  struct Plane bottom;
+  struct Plane left;
+  struct Plane right;
+  struct Plane far;
+  struct Plane near;
 };

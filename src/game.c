@@ -3,6 +3,7 @@
 #include "cglm/affine.h"
 #include "cglm/mat4.h"
 #include "cglm/vec3.h"
+#include "culling.h"
 #include "file.h"
 #include "image.h"
 #include "math.h"
@@ -13,7 +14,6 @@
 #include "types.h"
 #include "util.h"
 
-#define BASE_MAP_SIZE 1024
 static vec3 CAMERA_TO_TERRAIN = {BASE_MAP_SIZE, BASE_MAP_SIZE, BASE_MAP_SIZE};
 
 static struct MapEntry maps[MAP_COUNT] = {
@@ -73,6 +73,25 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
                            mat4 in_view_matrix) {
   glEnable(GL_DEPTH_TEST);
   glEnable(GL_CULL_FACE);
+
+  struct Frustum frustum;
+  get_frustum(in_projection_matrix, &game->camera, &frustum);
+  printf("near: ");
+  print_plane(&frustum.near);
+  printf(" far: ");
+  print_plane(&frustum.far);
+  printf(" top: ");
+  print_plane(&frustum.top);
+  printf(" bottom: ");
+  print_plane(&frustum.bottom);
+  printf(" left: ");
+  print_plane(&frustum.left);
+  printf(" right: ");
+  print_plane(&frustum.right);
+  printf("\n");
+  printf("position: %f,%f,%f\n", game->camera.position[0],
+         game->camera.position[1], game->camera.position[2]);
+
 #ifdef GL_POLYGON_MODE
   if (game->options.show_wireframe) {
     glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -91,14 +110,23 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
   glm_vec3_scale(camera_offset, camera->terrain_scale, camera_offset);
 
   mat4 view_matrix = GLM_MAT4_IDENTITY_INIT;
-  glm_rotate(view_matrix, -camera->pitch, (vec3){0.0, 1.0, 0.0});
-  glm_translate(view_matrix, camera_offset);
+  if (!game->options.visualize_frustum) {
+    glm_rotate(view_matrix, -camera->pitch, (vec3){0.0, 1.0, 0.0});
+    glm_translate(view_matrix, camera_offset);
 
-  // HMD position is built into the view matrix but we already accounted
-  // for it in the position of the camera.
-  glm_translate(in_view_matrix, camera->last_hmd_position);
+    // HMD position is built into the view matrix but we already accounted
+    // for it in the position of the camera.
+    glm_translate(in_view_matrix, camera->last_hmd_position);
 
-  glm_mat4_mul(in_view_matrix, view_matrix, view_matrix);
+    glm_mat4_mul(in_view_matrix, view_matrix, view_matrix);
+  } else {
+    float middle = (3.0f / 2.0f) * BASE_MAP_SIZE;
+    vec3 frustum_vis_eye = {middle, 4000.0f, middle};
+    vec3 frustum_vis_up = {0.0f, 0.0f, -1.0f};
+    vec3 frustum_vis_center = {middle, 0.0f, middle};
+    glm_lookat(frustum_vis_eye, frustum_vis_center, frustum_vis_up,
+               view_matrix);
+  }
 
   struct OpenGLData *gl = &game->gl;
   struct Map *map = &game->maps[game->map_index];
@@ -145,21 +173,34 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
       vec3 section_center;
       glm_vec3_add(section->center, translate, section_center);
 
+      vec3 lod_blend_color = {1.0, 1.0, 1.0};
+      if (!is_sphere_in_frustum(&frustum, section_center, 256.0f)) {
+        lod_blend_color[1] = 0.0;
+        lod_blend_color[2] = 0.0;
+        printf("Tile %d Section %d: CULLED (%f, %f, %f)\n", i, i_section,
+               section_center[0], section_center[1], section_center[2]);
+        if (!game->options.visualize_lod) {
+          continue;
+        }
+      } else {
+        printf("Tile %d Section %d: SHOWN (%f, %f, %f)\n", i, i_section,
+               section_center[0], section_center[1], section_center[2]);
+      }
+
       float distance = glm_vec3_distance(cam_terrain_position, section_center);
       int32_t lod_index = 0;
-      vec3 lod_blend_color = {1.0, 1.0, 1.0};
       if (distance <= 256.0f) {
         lod_index = 0;
-        lod_blend_color[1] = 0.0;
-        lod_blend_color[2] = 0.0;
+        /* lod_blend_color[1] = 0.0; */
+        /* lod_blend_color[2] = 0.0; */
       } else if (distance < 512.0) {
         lod_index = 1;
-        lod_blend_color[0] = 0.0;
-        lod_blend_color[2] = 0.0;
+        /* lod_blend_color[0] = 0.0; */
+        /* lod_blend_color[2] = 0.0; */
       } else {
         lod_index = 2;
-        lod_blend_color[0] = 0.0;
-        lod_blend_color[1] = 0.0;
+        /* lod_blend_color[0] = 0.0; */
+        /* lod_blend_color[1] = 0.0; */
       }
 
       if (!game->options.visualize_lod) {
@@ -278,6 +319,21 @@ static inline float get_ground_height(struct ImageBuffer *height_map, float x,
   return get_image_grey(height_map, x, y) / 255.0f;
 }
 
+static void update_camera(struct Camera *camera) {
+  get_forward_vector(camera, (vec3){0, 0, -1.0f}, false, camera->front);
+
+  vec3 up = {0.0f, 1.0f, 0.0f};
+  glm_quat_rotatev(camera->quat, up, camera->up);
+
+  versor pitch_adj;
+  glm_quat(pitch_adj, camera->pitch, 0.0f, 1.0f, 0.0f);
+
+  vec3 right = {1.0f, 0.0f, 0.0f};
+  glm_vec3_copy(right, camera->right);
+  glm_quat_rotatev(pitch_adj, camera->right, camera->right);
+  glm_quat_rotatev(camera->quat, camera->right, camera->right);
+}
+
 void update_game(struct Game *game, struct KeyboardState *keyboard,
                  struct ControllerState *left_controller,
                  struct ControllerState *right_controller, vec3 hmd_position,
@@ -376,6 +432,10 @@ void update_game(struct Game *game, struct KeyboardState *keyboard,
     game->options.show_wireframe = !game->options.show_wireframe;
   }
 
+  if (is_key_just_pressed(game, 'b')) {
+    game->options.visualize_frustum = !game->options.visualize_frustum;
+  }
+
   for (int i = 0; i < 2; ++i) {
     if (game->controller[i].trigger < 0.1) {
       game->trigger_set[i] = true;
@@ -442,6 +502,8 @@ void update_game(struct Game *game, struct KeyboardState *keyboard,
   while (game->camera.position[2] < 0) {
     game->camera.position[2] += 1.0;
   }
+
+  update_camera(&game->camera);
 
   if (is_key_pressed(&game->keyboard, 'z') ||
       (!change_map_mode &&
@@ -901,30 +963,33 @@ int32_t game_init(struct Game *game, int32_t width, int32_t height) {
 
   create_frame_buffer(game, width, height);
 
-  game->camera =
-      (struct Camera){.viewport_width = width,
-                      .viewport_height = height,
-                      .distance = 800,
-                      .quat = GLM_QUAT_IDENTITY_INIT,
-                      .horizon = game->frame.height / 2,
-                      .scale_height = game->frame.height * 0.35,
-                      /* .position = {0.739819, 0.292814, 0.241042}, */
-                      /* .pitch = 4.033807, */
-                      .position =
-                          {
-                              436.0f / 1024.0f,
-                              200.0f / 1024.0f,
-                              54.0f / 1024.0f,
-                          },
-                      .pitch = M_PI,
-                      .last_hmd_position = {0.0f, 0.0f, 0.0f},
-                      .terrain_scale = 0.05f,
-                      .clip = .06f * game->frame.width,
-                      .is_z_relative_to_ground = false};
+  game->camera = (struct Camera){
+      .viewport_width = width,
+      .viewport_height = height,
+      .quat = GLM_QUAT_IDENTITY_INIT,
+      .scale_height = game->frame.height * 0.35,
+      .position =
+          {
+              436.0f / 1024.0f,
+              200.0f / 1024.0f,
+              54.0f / 1024.0f,
+          },
+      .pitch = M_PI,
+      .last_hmd_position = {0.0f, 0.0f, 0.0f},
+      .terrain_scale = 1.00f,
+      .is_z_relative_to_ground = false,
+      .ray =
+          {
+              .horizon = game->frame.height / 2,
+              .clip = .06f * game->frame.width,
+              .distance = 800,
+          },
+  };
 
   create_gl_objects(game);
   game->map_index = 0;
   game->options.visualize_lod = false;
+  game->options.visualize_frustum = false;
   game->options.show_wireframe = false;
   for (int i = 0; i < 2; ++i) {
     game->trigger_set[i] = true;

@@ -18,6 +18,7 @@ add_executable(game
             ${CMAKE_SOURCE_DIR}/../src/game.c
             ${CMAKE_SOURCE_DIR}/../src/image.c
             ${CMAKE_SOURCE_DIR}/../src/raycasting.c
+            ${CMAKE_SOURCE_DIR}/../src/culling.c
             ${CMAKE_SOURCE_DIR}/../src/shader.c
             ${CMAKE_SOURCE_DIR}/../src/util.c
             )
