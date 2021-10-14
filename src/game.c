@@ -435,11 +435,6 @@ void update_game(struct Game *game, struct KeyboardState *keyboard,
 
   struct ControllerState *left_controller_prev =
       &game->prev_controller[LEFT_CONTROLLER_INDEX];
-  if (left_controller->primary_button &&
-      left_controller_prev->primary_button != left_controller->primary_button) {
-    game->camera.is_z_relative_to_ground =
-        !game->camera.is_z_relative_to_ground;
-  }
 
   bool change_map_mode = game->controller[RIGHT_CONTROLLER_INDEX].grip > 0.9f;
   if (is_key_just_pressed(game, 'j') ||
@@ -470,7 +465,9 @@ void update_game(struct Game *game, struct KeyboardState *keyboard,
     game->options.show_wireframe = !game->options.show_wireframe;
   }
 
-  if (is_key_just_pressed(game, 'b')) {
+  if (is_key_just_pressed(game, 'b') || (left_controller->primary_button &&
+                                         left_controller_prev->primary_button !=
+                                             left_controller->primary_button)) {
     game->options.visualize_frustum = !game->options.visualize_frustum;
   }
 
@@ -479,10 +476,6 @@ void update_game(struct Game *game, struct KeyboardState *keyboard,
       game->trigger_set[i] = true;
     }
   }
-
-  struct Map *map = &game->maps[game->map_index];
-  float prev_ground_height = get_ground_height(
-      &map->height_map, game->camera.position[0], game->camera.position[2]);
 
   vec3 movement;
   {
@@ -508,14 +501,6 @@ void update_game(struct Game *game, struct KeyboardState *keyboard,
   game->camera.pitch +=
       -rotation_movement * M_PI *
       (right_controller->scale_rotation_by_time ? elapsed : 1.0f);
-
-  if (game->camera.is_z_relative_to_ground) {
-    float ground_height = get_ground_height(
-        &map->height_map, game->camera.position[0], game->camera.position[2]);
-    float ground_height_diff = ground_height - prev_ground_height;
-    game->camera.position[1] = clamp(
-        game->camera.position[1] + ground_height_diff, ground_height, 10000.0f);
-  }
 
   while (game->camera.pitch >= 2 * M_PI) {
     game->camera.pitch -= 2 * M_PI;
@@ -1038,7 +1023,6 @@ int32_t game_init(struct Game *game, int32_t width, int32_t height) {
       .pitch = M_PI,
       .last_hmd_position = {0.0f, 0.0f, 0.0f},
       .terrain_scale = 1.00f,
-      .is_z_relative_to_ground = false,
       .ray =
           {
               .horizon = game->frame.height / 2,

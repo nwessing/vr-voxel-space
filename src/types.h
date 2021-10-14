@@ -49,7 +49,6 @@ struct Camera {
   vec3 position;
   vec3 last_hmd_position;
   float terrain_scale;
-  bool is_z_relative_to_ground;
   struct RaytraceCamera ray;
   // Derived data
   vec3 up;
