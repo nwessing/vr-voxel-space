@@ -17,6 +17,7 @@ add_library(main
             ${CMAKE_SOURCE_DIR}/src/main/cpp/android_native_app_glue.c
             ${CMAKE_SOURCE_DIR}/src/main/cpp/quest_main.c
             ${CMAKE_SOURCE_DIR}/../src/file.c
+            ${CMAKE_SOURCE_DIR}/../src/culling.c
             ${CMAKE_SOURCE_DIR}/../src/game.c
             ${CMAKE_SOURCE_DIR}/../src/image.c
             ${CMAKE_SOURCE_DIR}/../src/raycasting.c

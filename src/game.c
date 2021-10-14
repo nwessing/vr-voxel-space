@@ -103,8 +103,7 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
 
   mat4 birdseye_projection_view = GLM_MAT4_IDENTITY_INIT;
   if (game->options.visualize_frustum) {
-    /* float middle = (3.0f / 2.0f) * BASE_MAP_SIZE; */
-    float middle = 0.0f;
+    float middle = (1.0f / 2.0f) * BASE_MAP_SIZE;
     vec3 frustum_vis_eye = {middle, 4000.0f, middle};
     vec3 frustum_vis_up = {0.0f, 0.0f, -1.0f};
     vec3 frustum_vis_center = {middle, 0.0f, middle};
@@ -170,9 +169,15 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
       vec3 section_center;
       glm_vec3_add(section->center, translate, section_center);
 
-      if (!is_sphere_in_frustum(frustum_planes, section_center,
-                                section->bounding_sphere_radius)) {
-        continue;
+      {
+        vec3 scaled_section_center;
+        glm_vec3_scale(section_center, camera->terrain_scale,
+                       scaled_section_center);
+        if (!is_sphere_in_frustum(frustum_planes, scaled_section_center,
+                                  section->bounding_sphere_radius *
+                                      camera->terrain_scale)) {
+          continue;
+        }
       }
 
       vec4 lod_blend_color = {1.0, 1.0, 1.0, 1.0};
@@ -835,9 +840,9 @@ static void create_map_gl_data(struct Map *map) {
     section->center[0] = (rect.x + half_section_width) * modifier;
     section->center[1] = 128.0f;
     section->center[2] = (rect.y + half_section_height) * modifier;
-    section->bounding_sphere_radius =
-        sqrtf((half_section_width * half_section_width) +
-              (half_section_height * half_section_height));
+    section->bounding_sphere_radius = sqrtf(
+        (half_section_width * half_section_width * modifier * modifier) +
+        (half_section_height * half_section_height * modifier * modifier));
 
     int32_t divisor = 1;
     for (int32_t i_lod = 0; i_lod < LOD_COUNT; ++i_lod) {
