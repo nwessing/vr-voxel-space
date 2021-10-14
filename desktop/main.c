@@ -164,7 +164,7 @@ int main(void) {
     glm_perspective(glm_rad(90),
                     game->camera.viewport_width /
                         (float)game->camera.viewport_height,
-                    0.01f, 100000.0f, projection_matrix);
+                    0.01f, 5000.0f, projection_matrix);
 
     mat4 view_matrix = GLM_MAT4_IDENTITY_INIT;
     glm_lookat((vec3){0.0f, 0.0f, 0.0f}, (vec3){0.0f, 0.0f, -1.0f},

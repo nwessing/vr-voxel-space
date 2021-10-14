@@ -65,6 +65,9 @@ struct OpenGLData {
   GLuint vao;
   GLuint tex_id;
   uint32_t vao_num_vertices;
+  GLuint frustum_vis_vao;
+  GLuint frustum_vis_vbo;
+  GLuint white_tex_id;
 };
 
 struct GameOptions {
@@ -118,6 +121,7 @@ struct Lod {
 #define LOD_COUNT 3
 struct MapSection {
   vec3 center;
+  float bounding_sphere_radius;
   struct Lod lods[LOD_COUNT];
 };
 
@@ -151,22 +155,4 @@ struct Game {
   struct ControllerState prev_controller[2];
   struct ControllerState controller[2];
   bool trigger_set[2];
-};
-
-struct DecomposedProjectionMatrix {
-  float near, far, bottom, top, left, right, field_of_view, aspect_ratio;
-};
-
-struct Plane {
-  vec3 normal;
-  float distance;
-};
-
-struct Frustum {
-  struct Plane top;
-  struct Plane bottom;
-  struct Plane left;
-  struct Plane right;
-  struct Plane far;
-  struct Plane near;
 };

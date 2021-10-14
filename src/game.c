@@ -74,24 +74,6 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
   glEnable(GL_DEPTH_TEST);
   glEnable(GL_CULL_FACE);
 
-  struct Frustum frustum;
-  get_frustum(in_projection_matrix, &game->camera, &frustum);
-  printf("near: ");
-  print_plane(&frustum.near);
-  printf(" far: ");
-  print_plane(&frustum.far);
-  printf(" top: ");
-  print_plane(&frustum.top);
-  printf(" bottom: ");
-  print_plane(&frustum.bottom);
-  printf(" left: ");
-  print_plane(&frustum.left);
-  printf(" right: ");
-  print_plane(&frustum.right);
-  printf("\n");
-  printf("position: %f,%f,%f\n", game->camera.position[0],
-         game->camera.position[1], game->camera.position[2]);
-
 #ifdef GL_POLYGON_MODE
   if (game->options.show_wireframe) {
     glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -110,22 +92,29 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
   glm_vec3_scale(camera_offset, camera->terrain_scale, camera_offset);
 
   mat4 view_matrix = GLM_MAT4_IDENTITY_INIT;
-  if (!game->options.visualize_frustum) {
-    glm_rotate(view_matrix, -camera->pitch, (vec3){0.0, 1.0, 0.0});
-    glm_translate(view_matrix, camera_offset);
+  glm_rotate(view_matrix, -camera->pitch, (vec3){0.0, 1.0, 0.0});
+  glm_translate(view_matrix, camera_offset);
 
-    // HMD position is built into the view matrix but we already accounted
-    // for it in the position of the camera.
-    glm_translate(in_view_matrix, camera->last_hmd_position);
+  // HMD position is built into the view matrix but we already accounted
+  // for it in the position of the camera.
+  glm_translate(in_view_matrix, camera->last_hmd_position);
 
-    glm_mat4_mul(in_view_matrix, view_matrix, view_matrix);
-  } else {
-    float middle = (3.0f / 2.0f) * BASE_MAP_SIZE;
+  glm_mat4_mul(in_view_matrix, view_matrix, view_matrix);
+
+  mat4 birdseye_projection_view = GLM_MAT4_IDENTITY_INIT;
+  if (game->options.visualize_frustum) {
+    /* float middle = (3.0f / 2.0f) * BASE_MAP_SIZE; */
+    float middle = 0.0f;
     vec3 frustum_vis_eye = {middle, 4000.0f, middle};
     vec3 frustum_vis_up = {0.0f, 0.0f, -1.0f};
     vec3 frustum_vis_center = {middle, 0.0f, middle};
+    mat4 birdseye_view_matrix = GLM_MAT4_IDENTITY_INIT;
+    // TODO use orthographic projection?
     glm_lookat(frustum_vis_eye, frustum_vis_center, frustum_vis_up,
-               view_matrix);
+               birdseye_view_matrix);
+
+    glm_mat4_mul(in_projection_matrix, birdseye_view_matrix,
+                 birdseye_projection_view);
   }
 
   struct OpenGLData *gl = &game->gl;
@@ -138,6 +127,9 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
 
   mat4 projection_view = GLM_MAT4_IDENTITY_INIT;
   glm_mat4_mul(in_projection_matrix, view_matrix, projection_view);
+
+  vec4 frustum_planes[6];
+  glm_frustum_planes(projection_view, frustum_planes);
 
   glUniform2i(glGetUniformLocation(gl->poly_shader_program, "heightMapSize"),
               BASE_MAP_SIZE, BASE_MAP_SIZE);
@@ -160,7 +152,12 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
     glm_translate(model, translate);
 
     mat4 mvp = GLM_MAT4_IDENTITY_INIT;
-    glm_mat4_mul(projection_view, model, mvp);
+    if (game->options.visualize_frustum) {
+      glm_mat4_mul(birdseye_projection_view, model, mvp);
+
+    } else {
+      glm_mat4_mul(projection_view, model, mvp);
+    }
     glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "mvp"), 1,
                        GL_FALSE, (float *)mvp);
     for (int32_t i_section = 0; i_section < MAP_SECTION_COUNT; ++i_section) {
@@ -173,34 +170,26 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
       vec3 section_center;
       glm_vec3_add(section->center, translate, section_center);
 
-      vec3 lod_blend_color = {1.0, 1.0, 1.0};
-      if (!is_sphere_in_frustum(&frustum, section_center, 256.0f)) {
-        lod_blend_color[1] = 0.0;
-        lod_blend_color[2] = 0.0;
-        printf("Tile %d Section %d: CULLED (%f, %f, %f)\n", i, i_section,
-               section_center[0], section_center[1], section_center[2]);
-        if (!game->options.visualize_lod) {
-          continue;
-        }
-      } else {
-        printf("Tile %d Section %d: SHOWN (%f, %f, %f)\n", i, i_section,
-               section_center[0], section_center[1], section_center[2]);
+      if (!is_sphere_in_frustum(frustum_planes, section_center,
+                                section->bounding_sphere_radius)) {
+        continue;
       }
 
+      vec4 lod_blend_color = {1.0, 1.0, 1.0, 1.0};
       float distance = glm_vec3_distance(cam_terrain_position, section_center);
       int32_t lod_index = 0;
       if (distance <= 256.0f) {
         lod_index = 0;
-        /* lod_blend_color[1] = 0.0; */
-        /* lod_blend_color[2] = 0.0; */
+        lod_blend_color[1] = 0.0;
+        lod_blend_color[2] = 0.0;
       } else if (distance < 512.0) {
         lod_index = 1;
-        /* lod_blend_color[0] = 0.0; */
-        /* lod_blend_color[2] = 0.0; */
+        lod_blend_color[0] = 0.0;
+        lod_blend_color[2] = 0.0;
       } else {
         lod_index = 2;
-        /* lod_blend_color[0] = 0.0; */
-        /* lod_blend_color[1] = 0.0; */
+        lod_blend_color[0] = 0.0;
+        lod_blend_color[1] = 0.0;
       }
 
       if (!game->options.visualize_lod) {
@@ -208,12 +197,56 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
         lod_blend_color[1] = 1.0;
         lod_blend_color[2] = 1.0;
       }
-      glUniform3fv(glGetUniformLocation(gl->poly_shader_program, "blendColor"),
+      glUniform4fv(glGetUniformLocation(gl->poly_shader_program, "blendColor"),
                    1, lod_blend_color);
       struct Lod *lod = &section->lods[lod_index];
       glDrawElements(GL_TRIANGLES, lod->num_indices, GL_UNSIGNED_INT,
                      (void *)(uintptr_t)(lod->offset * sizeof(int32_t)));
     }
+  }
+
+  glBindVertexArray(0);
+
+  if (game->options.visualize_frustum) {
+    vec4 frustum_verts[8];
+    mat4 inv_projection_view;
+    glm_mat4_inv(projection_view, inv_projection_view);
+    glm_frustum_corners(inv_projection_view, frustum_verts);
+
+    // NOTE indices for each specific corner are not part of the API
+    vec3 verts[6];
+    // top left near
+    glm_vec3(frustum_verts[1], verts[0]);
+    // top right far
+    glm_vec3(frustum_verts[6], verts[1]);
+    // top left far
+    glm_vec3(frustum_verts[5], verts[2]);
+    // top right near
+    glm_vec3(frustum_verts[2], verts[3]);
+    // top right far
+    glm_vec3(frustum_verts[6], verts[4]);
+    // top left near
+    glm_vec3(frustum_verts[1], verts[5]);
+
+    glBindVertexArray(game->gl.frustum_vis_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, game->gl.frustum_vis_vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_DYNAMIC_DRAW);
+
+    glUseProgram(game->gl.poly_shader_program);
+
+    vec4 blend_color = {1.0, 1.0, 0.0, 0.5};
+    glUniform4fv(glGetUniformLocation(gl->poly_shader_program, "blendColor"), 1,
+                 blend_color);
+
+    glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "mvp"), 1,
+                       GL_FALSE, (float *)birdseye_projection_view);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, game->gl.white_tex_id);
+
+    glDisable(GL_DEPTH);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
   }
 }
 
@@ -797,9 +830,14 @@ static void create_map_gl_data(struct Map *map) {
                         .width = section_width,
                         .height = section_height};
     struct MapSection *section = &map->sections[i_section];
-    section->center[0] = (rect.x + (section_width / 2.0f)) * modifier;
+    float half_section_width = section_width / 2.0f;
+    float half_section_height = section_height / 2.0f;
+    section->center[0] = (rect.x + half_section_width) * modifier;
     section->center[1] = 128.0f;
-    section->center[2] = (rect.y + (section_height / 2.0f)) * modifier;
+    section->center[2] = (rect.y + half_section_height) * modifier;
+    section->bounding_sphere_radius =
+        sqrtf((half_section_width * half_section_width) +
+              (half_section_height * half_section_height));
 
     int32_t divisor = 1;
     for (int32_t i_lod = 0; i_lod < LOD_COUNT; ++i_lod) {
@@ -862,6 +900,24 @@ static void create_gl_objects(struct Game *game) {
   glBindBuffer(GL_ARRAY_BUFFER, gl->vbo);
   glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
   glEnableVertexAttribArray(0);
+
+  glGenVertexArrays(1, &gl->frustum_vis_vao);
+  glGenBuffers(1, &gl->frustum_vis_vbo);
+  glBindVertexArray(gl->frustum_vis_vao);
+  glBindBuffer(GL_ARRAY_BUFFER, gl->frustum_vis_vbo);
+  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
+  glEnableVertexAttribArray(0);
+
+  glGenTextures(1, &gl->white_tex_id);
+  glBindTexture(GL_TEXTURE_2D, gl->white_tex_id);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+  uint8_t white_tex_pixels[4] = {255, 255, 255, 0};
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 1, 1, 0, GL_RGB, GL_UNSIGNED_BYTE,
+               white_tex_pixels);
 
   char *vertex_shader_source = read_file("src/shaders/to_screen_space.vert");
   assert(vertex_shader_source != NULL);
