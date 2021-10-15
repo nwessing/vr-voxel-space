@@ -157,19 +157,22 @@ int main(void) {
 #else
 
     /* glBindFramebuffer(GL_FRAMEBUFFER, 0); */
-    SDL_GetWindowSize(window, &game->camera.viewport_width,
-                      &game->camera.viewport_height);
 
-    mat4 projection_matrix = GLM_MAT4_IDENTITY_INIT;
-    glm_perspective(glm_rad(90),
-                    game->camera.viewport_width /
-                        (float)game->camera.viewport_height,
-                    0.01f, 5000.0f, projection_matrix);
+    struct InputMatrices input_matrices = {0};
+    input_matrices.enable_stereo = false;
+    input_matrices.framebuffers[0] = 0;
 
-    mat4 view_matrix = GLM_MAT4_IDENTITY_INIT;
+    int32_t window_width, window_height;
+    SDL_GetWindowSize(window, &window_width, &window_height);
+    input_matrices.framebuffer_width[0] = window_width;
+    input_matrices.framebuffer_height[0] = window_height;
+
+    glm_perspective(glm_rad(90), window_width / (float)window_height, 0.01f,
+                    5000.0f, input_matrices.projection_matrices[0]);
+
     glm_lookat((vec3){0.0f, 0.0f, 0.0f}, (vec3){0.0f, 0.0f, -1.0f},
-               (vec3){0.0f, 1.0f, 0.0f}, view_matrix);
-    render_game(game, projection_matrix, view_matrix);
+               (vec3){0.0f, 1.0f, 0.0f}, input_matrices.view_matrices[0]);
+    render_game(game, &input_matrices);
 
     SDL_GL_SwapWindow(window);
 

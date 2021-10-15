@@ -56,6 +56,22 @@ struct Camera {
   vec3 front;
 };
 
+struct InputMatrices {
+  bool enable_stereo;
+  mat4 projection_matrices[2];
+  mat4 view_matrices[2];
+  GLuint framebuffers[2];
+  int32_t framebuffer_width[2];
+  int32_t framebuffer_height[2];
+};
+
+struct RenderingMatrices {
+  bool enable_stereo;
+  mat4 projection_matrices[2];
+  mat4 view_matrices[2];
+  mat4 projection_view_matrices[2];
+};
+
 struct OpenGLData {
   GLuint frame_buffer;
   GLuint poly_shader_program;
@@ -115,6 +131,11 @@ struct MapEntry {
 struct Lod {
   int32_t offset;
   int32_t num_indices;
+};
+
+struct DrawCommand {
+  mat4 model_matrix;
+  struct Lod mesh_ref;
 };
 
 #define LOD_COUNT 3

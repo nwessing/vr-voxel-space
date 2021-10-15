@@ -370,11 +370,17 @@ static ovrLayerProjection2 renderer_render_frame(struct Game *game,
   layer.Header.Flags |= VRAPI_FRAME_LAYER_FLAG_CHROMATIC_ABERRATION_CORRECTION;
   layer.HeadPose = tracking->HeadPose;
 
+  struct InputMatrices matrices = {0};
+  matrices.enable_stereo = true;
+
   for (int i = 0; i < VRAPI_FRAME_LAYER_EYE_MAX; ++i) {
     ovrMatrix4f view_matrix =
         ovrMatrix4f_Transpose(&tracking->Eye[i].ViewMatrix);
     ovrMatrix4f projection_matrix =
         ovrMatrix4f_Transpose(&tracking->Eye[i].ProjectionMatrix);
+
+    glm_mat4_copy(projection_matrix.M, matrices.projection_matrices[i]);
+    glm_mat4_copy(view_matrix.M, matrices.view_matrices[i]);
 
     struct framebuffer *framebuffer = &renderer->framebuffers[i];
     layer.Textures[i].ColorSwapChain = framebuffer->color_texture_swap_chain;
@@ -383,13 +389,15 @@ static ovrLayerProjection2 renderer_render_frame(struct Game *game,
         ovrMatrix4f_TanAngleMatrixFromProjection(
             &tracking->Eye[i].ProjectionMatrix);
 
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER,
-                      framebuffer->framebuffers[framebuffer->swap_chain_index]);
+    /* glBindFramebuffer(GL_DRAW_FRAMEBUFFER, */
+    /*                   framebuffer->framebuffers[framebuffer->swap_chain_index]);
+     */
+    matrices.framebuffers[i] =
+        framebuffer->framebuffers[framebuffer->swap_chain_index];
 
-    game->camera.viewport_width = framebuffer->width;
-    game->camera.viewport_height = framebuffer->height;
+    matrices.framebuffer_width[i] = framebuffer->width;
+    matrices.framebuffer_height[i] = framebuffer->height;
 
-    render_game(game, projection_matrix.M, view_matrix.M);
     /* glEnable(GL_CULL_FACE); */
     /* glEnable(GL_DEPTH_TEST); */
     /* glEnable(GL_SCISSOR_TEST); */
@@ -408,16 +416,21 @@ static ovrLayerProjection2 renderer_render_frame(struct Game *game,
     /* glScissor(0, framebuffer->height - 1, framebuffer->width, 1); */
     /* glClear(GL_COLOR_BUFFER_BIT); */
 
-    static const GLenum ATTACHMENTS[] = {GL_DEPTH_ATTACHMENT};
-    static const GLsizei NUM_ATTACHMENTS =
-        sizeof(ATTACHMENTS) / sizeof(ATTACHMENTS[0]);
-    glInvalidateFramebuffer(GL_DRAW_FRAMEBUFFER, NUM_ATTACHMENTS, ATTACHMENTS);
-    glFlush();
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    // TODO bring back invalidation after introducing multiview
+    /* static const GLenum ATTACHMENTS[] = {GL_DEPTH_ATTACHMENT}; */
+    /* static const GLsizei NUM_ATTACHMENTS = */
+    /*     sizeof(ATTACHMENTS) / sizeof(ATTACHMENTS[0]); */
+    /* glInvalidateFramebuffer(GL_DRAW_FRAMEBUFFER, NUM_ATTACHMENTS,
+     * ATTACHMENTS); */
+    /* glFlush(); */
+    /* glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0); */
 
     framebuffer->swap_chain_index =
         (framebuffer->swap_chain_index + 1) % framebuffer->swap_chain_length;
   }
+
+  render_game(game, &matrices);
+  glFlush();
 
   return layer;
 }

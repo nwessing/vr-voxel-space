@@ -69,21 +69,8 @@ static void get_forward_vector(struct Camera *camera, vec3 direction,
   glm_mat4_mulv3(rotate, direction, 1, result);
 }
 
-static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
-                           mat4 in_view_matrix) {
-  glEnable(GL_DEPTH_TEST);
-  glEnable(GL_CULL_FACE);
-
-#ifdef GL_POLYGON_MODE
-  if (game->options.show_wireframe) {
-    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-  } else {
-    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-  }
-#endif
-  glClearColor(0.529f, 0.808f, 0.98f, 1.0f);
-  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
+static void compute_matrices(struct Game *game, struct InputMatrices *matrices,
+                             struct RenderingMatrices *out) {
   struct Camera *camera = &game->camera;
   vec3 camera_offset;
   glm_vec3_scale(camera->position, -1.0f, camera_offset);
@@ -95,11 +82,53 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
   glm_rotate(view_matrix, -camera->pitch, (vec3){0.0, 1.0, 0.0});
   glm_translate(view_matrix, camera_offset);
 
-  // HMD position is built into the view matrix but we already accounted
-  // for it in the position of the camera.
-  glm_translate(in_view_matrix, camera->last_hmd_position);
+  out->enable_stereo = matrices->enable_stereo;
+  int num_matrices = matrices->enable_stereo ? 2 : 1;
+  for (int32_t i = 0; i < num_matrices; ++i) {
+    // HMD position is built into the view matrix but we already accounted
+    // for it in the position of the camera.
+    mat4 eye_view_matrix;
+    glm_mat4_copy(matrices->view_matrices[i], eye_view_matrix);
+    glm_translate(eye_view_matrix, camera->last_hmd_position);
 
-  glm_mat4_mul(in_view_matrix, view_matrix, view_matrix);
+    glm_mat4_mul(eye_view_matrix, view_matrix, eye_view_matrix);
+
+    mat4 projection_view = GLM_MAT4_IDENTITY_INIT;
+    glm_mat4_mul(matrices->projection_matrices[i], eye_view_matrix,
+                 projection_view);
+
+    glm_mat4_copy(matrices->projection_matrices[i],
+                  out->projection_matrices[i]);
+    glm_mat4_copy(eye_view_matrix, out->view_matrices[i]);
+    glm_mat4_copy(projection_view, out->projection_view_matrices[i]);
+  }
+}
+
+static void generate_draw_commands(struct Game *game,
+                                   struct InputMatrices *matrices) {
+
+  (void)game;
+  (void)matrices;
+  // TODO
+}
+
+static void render_real_3d(struct Game *game,
+                           struct RenderingMatrices *matrices, int32_t eye) {
+  glEnable(GL_DEPTH_TEST);
+  glEnable(GL_CULL_FACE);
+
+#ifdef GL_POLYGON_MODE
+  if (game->options.show_wireframe) {
+    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+  } else {
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+  }
+#endif
+
+  glClearColor(0.529f, 0.808f, 0.98f, 1.0f);
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+  struct Camera *camera = &game->camera;
 
   mat4 birdseye_projection_view = GLM_MAT4_IDENTITY_INIT;
   if (game->options.visualize_frustum) {
@@ -112,7 +141,7 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
     glm_lookat(frustum_vis_eye, frustum_vis_center, frustum_vis_up,
                birdseye_view_matrix);
 
-    glm_mat4_mul(in_projection_matrix, birdseye_view_matrix,
+    glm_mat4_mul(matrices->projection_matrices[eye], birdseye_view_matrix,
                  birdseye_projection_view);
   }
 
@@ -124,11 +153,10 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, map->color_map_tex_id);
 
-  mat4 projection_view = GLM_MAT4_IDENTITY_INIT;
-  glm_mat4_mul(in_projection_matrix, view_matrix, projection_view);
+  mat4 *projection_view = &matrices->projection_view_matrices[eye];
 
   vec4 frustum_planes[6];
-  glm_frustum_planes(projection_view, frustum_planes);
+  glm_frustum_planes(matrices->projection_view_matrices[eye], frustum_planes);
 
   glUniform2i(glGetUniformLocation(gl->poly_shader_program, "heightMapSize"),
               BASE_MAP_SIZE, BASE_MAP_SIZE);
@@ -153,9 +181,8 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
     mat4 mvp = GLM_MAT4_IDENTITY_INIT;
     if (game->options.visualize_frustum) {
       glm_mat4_mul(birdseye_projection_view, model, mvp);
-
     } else {
-      glm_mat4_mul(projection_view, model, mvp);
+      glm_mat4_mul(*projection_view, model, mvp);
     }
     glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "mvp"), 1,
                        GL_FALSE, (float *)mvp);
@@ -215,7 +242,7 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
   if (game->options.visualize_frustum) {
     vec4 frustum_verts[8];
     mat4 inv_projection_view;
-    glm_mat4_inv(projection_view, inv_projection_view);
+    glm_mat4_inv(*projection_view, inv_projection_view);
     glm_frustum_corners(inv_projection_view, frustum_verts);
 
     // NOTE indices for each specific corner are not part of the API
@@ -248,10 +275,10 @@ static void render_real_3d(struct Game *game, mat4 in_projection_matrix,
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, game->gl.white_tex_id);
 
-    glDisable(GL_DEPTH);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDrawArrays(GL_TRIANGLES, 0, 6);
+    glDisable(GL_BLEND);
   }
 }
 
@@ -282,46 +309,54 @@ static void render_buffer_to_gl(struct FrameBuffer *frame,
   glDrawArrays(GL_TRIANGLES, 0, gl->vao_num_vertices);
 }
 
-void render_game(struct Game *game, mat4 projection, mat4 view_matrix) {
-  glViewport(0, 0, game->camera.viewport_width, game->camera.viewport_height);
+void render_game(struct Game *game, struct InputMatrices *matrices) {
+  struct RenderingMatrices rendering_matrices;
+  compute_matrices(game, matrices, &rendering_matrices);
 
-  /* if (game->options.do_raycasting) { */
-  /*   memset(game->frame.pixels, 0, game->frame.height * game->frame.pitch);
-   */
-  /*   if (game->options.render_stereo) { */
-  /*     for (int eye = 0; eye < 2; ++eye) { */
-  /*       struct FrameBuffer eye_buffer; */
-  /*       eye_buffer.width = game->frame.width / 2; */
-  /*       eye_buffer.height = game->frame.height; */
-  /*       eye_buffer.pitch = game->frame.pitch; */
-  /*       eye_buffer.y_buffer = &game->frame.y_buffer[eye * (eye_buffer.width
-   * / 2)]; */
-  /*       eye_buffer.clip_left_x = eye == 0 ? 0 : game->camera.clip; */
-  /*       eye_buffer.clip_right_x = eye_buffer.width - (eye == 0 ?
-   * game->camera.clip : 0); */
-  /*       eye_buffer.pixels = eye == 0 ? game->frame.pixels :
-   * &game->frame.pixels[(eye_buffer.width - game->camera.clip * 2) * 4]; */
+  int32_t view_count = rendering_matrices.enable_stereo ? 2 : 1;
+  for (int32_t i = 0; i < view_count; ++i) {
+    glViewport(0, 0, matrices->framebuffer_width[i],
+               matrices->framebuffer_height[i]);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, matrices->framebuffers[i]);
+    render_real_3d(game, &rendering_matrices, i);
+  }
+#if 0
+  if (game->options.do_raycasting) {
+    memset(game->frame.pixels, 0, game->frame.height * game->frame.pitch);
+    if (game->options.render_stereo) {
+      for (int eye = 0; eye < 2; ++eye) {
+        struct FrameBuffer eye_buffer;
+        eye_buffer.width = game->frame.width / 2;
+        eye_buffer.height = game->frame.height;
+        eye_buffer.pitch = game->frame.pitch;
+        eye_buffer.y_buffer = &game->frame.y_buffer[eye * (eye_buffer.width
+  / 2)];
+        eye_buffer.clip_left_x = eye == 0 ? 0 : game->camera.clip;
+        eye_buffer.clip_right_x = eye_buffer.width - (eye == 0 ?
+  game->camera.clip : 0);
+        eye_buffer.pixels = eye == 0 ? game->frame.pixels :
+  &game->frame.pixels[(eye_buffer.width - game->camera.clip * 2) * 4];
 
-  /*       int eye_mod = eye == 1 ? 1 : -1; */
-  /*       int eye_dist = 3; */
-  /*       struct Camera eye_cam = game->camera; */
-  /*       eye_cam.position_x += (int)(eye_mod * eye_dist * sin(eye_cam.pitch
-   * + (M_PI / 2))); */
-  /*       eye_cam.position_y += (int)(eye_mod * eye_dist * cos(eye_cam.pitch
-   * + (M_PI / 2))); */
+        int eye_mod = eye == 1 ? 1 : -1;
+        int eye_dist = 3;
+        struct Camera eye_cam = game->camera;
+        eye_cam.position_x += (int)(eye_mod * eye_dist * sin(eye_cam.pitch
+  + (M_PI / 2)));
+        eye_cam.position_y += (int)(eye_mod * eye_dist * cos(eye_cam.pitch
+  + (M_PI / 2)));
 
-  /*       render(&eye_buffer, &game->color_map, &game->height_map, &eye_cam);
-   */
-  /*     } */
-  /*   } else { */
-  /*     render(&game->frame, &game->color_map, &game->height_map,
-   * &game->camera); */
-  /*   } */
+        render(&eye_buffer, &game->color_map, &game->height_map, &eye_cam);
+      }
+    } else {
+      render(&game->frame, &game->color_map, &game->height_map,
+  &game->camera);
+    }
 
-  /*   render_buffer_to_gl(&game->frame, &game->gl, game->camera.clip); */
-  /* } else { */
-  render_real_3d(game, projection, view_matrix);
-  /* } */
+    render_buffer_to_gl(&game->frame, &game->gl, game->camera.clip);
+  } else {
+    //render_real was here
+  }
+#endif
 }
 
 static inline bool is_key_pressed(struct KeyboardState *keyboard, int32_t key) {
