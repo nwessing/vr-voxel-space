@@ -128,21 +128,22 @@ struct MapEntry {
   char *height;
 };
 
-struct Lod {
+struct Mesh {
   int32_t offset;
   int32_t num_indices;
 };
 
 struct DrawCommand {
   mat4 model_matrix;
-  struct Lod mesh_ref;
+  struct Mesh mesh;
+  int32_t lod;
 };
 
 #define LOD_COUNT 3
 struct MapSection {
   vec3 center;
   float bounding_sphere_radius;
-  struct Lod lods[LOD_COUNT];
+  struct Mesh lods[LOD_COUNT];
 };
 
 #define MAP_X_SEGMENTS 4
@@ -160,6 +161,12 @@ struct Map {
   struct MapSection sections[MAP_SECTION_COUNT];
 };
 
+struct RenderCommands {
+  struct DrawCommand commands[1024];
+  int32_t num_commands;
+  int32_t capacity;
+};
+
 #define LEFT_CONTROLLER_INDEX 0
 #define RIGHT_CONTROLLER_INDEX 1
 #define MAP_COUNT 30
@@ -175,4 +182,5 @@ struct Game {
   struct ControllerState prev_controller[2];
   struct ControllerState controller[2];
   bool trigger_set[2];
+  struct RenderCommands render_commands;
 };

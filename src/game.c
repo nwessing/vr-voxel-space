@@ -69,6 +69,14 @@ static void get_forward_vector(struct Camera *camera, vec3 direction,
   glm_mat4_mulv3(rotate, direction, 1, result);
 }
 
+/*!
+ * Calculates projection and view matrices to be used for rendering based on
+ * input matrices.
+ *
+ * @param[in]  game
+ * @param[in]  matrices
+ * @param[out]  out
+ */
 static void compute_matrices(struct Game *game, struct InputMatrices *matrices,
                              struct RenderingMatrices *out) {
   struct Camera *camera = &game->camera;
@@ -104,12 +112,94 @@ static void compute_matrices(struct Game *game, struct InputMatrices *matrices,
   }
 }
 
+/*!
+ * Calculates what the game should render. Performs LOD selection and frustum
+ * culling
+ *
+ * @param[in]  game
+ * @param[in]  matrices
+ */
 static void generate_draw_commands(struct Game *game,
-                                   struct InputMatrices *matrices) {
+                                   struct RenderingMatrices *matrices) {
+  struct Map *map = &game->maps[game->map_index];
+  struct Camera *camera = &game->camera;
 
-  (void)game;
-  (void)matrices;
-  // TODO
+  vec4 frustum_planes[6];
+  if (matrices->enable_stereo) {
+    glm_frustum_planes(matrices->projection_view_matrices[0], frustum_planes);
+    vec4 right_eye_frustum_planes[6];
+    glm_frustum_planes(matrices->projection_view_matrices[1],
+                       right_eye_frustum_planes);
+
+    // Create combined frustum by assuming near, far, bottom, top planes
+    // are the same for each eye. Use left plane from left eye, and right plane
+    // from right eye.
+    glm_vec4_copy(right_eye_frustum_planes[1], frustum_planes[1]);
+  } else {
+    glm_frustum_planes(matrices->projection_view_matrices[0], frustum_planes);
+  }
+
+  game->render_commands.num_commands = 0;
+
+  for (int32_t i = 0; i < 9; ++i) {
+    int32_t x = (i / 3) - 1;
+    int32_t z = (i % 3) - 1;
+
+    // NOTE not sure why I need to subtract 1 from X and Z to make the seams
+    // disappear when tiling the map
+    vec3 translate = {x * (BASE_MAP_SIZE - map->modifier), 0.0f,
+                      z * (BASE_MAP_SIZE - map->modifier)};
+    mat4 model = GLM_MAT4_IDENTITY_INIT;
+    vec3 map_scaler = {camera->terrain_scale, camera->terrain_scale,
+                       camera->terrain_scale};
+    glm_scale(model, map_scaler);
+    glm_translate(model, translate);
+
+    for (int32_t i_section = 0; i_section < MAP_SECTION_COUNT; ++i_section) {
+      struct MapSection *section = &map->sections[i_section];
+
+      vec3 cam_terrain_position;
+      glm_vec3_mul(camera->position, CAMERA_TO_TERRAIN, cam_terrain_position);
+
+      vec3 section_center;
+      glm_vec3_add(section->center, translate, section_center);
+
+      {
+        vec3 scaled_section_center;
+        glm_vec3_scale(section_center, camera->terrain_scale,
+                       scaled_section_center);
+        if (!is_sphere_in_frustum(frustum_planes, scaled_section_center,
+                                  section->bounding_sphere_radius *
+                                      camera->terrain_scale)) {
+          continue;
+        }
+      }
+
+      float distance = glm_vec3_distance(cam_terrain_position, section_center);
+      int32_t lod_index = 0;
+      if (distance <= 256.0f) {
+        lod_index = 0;
+      } else if (distance < 512.0) {
+        lod_index = 1;
+      } else {
+        lod_index = 2;
+      }
+
+      struct Mesh *mesh = &section->lods[lod_index];
+      struct DrawCommand *draw_command =
+          &game->render_commands.commands[game->render_commands.num_commands];
+      ++game->render_commands.num_commands;
+      draw_command->mesh = *mesh;
+      draw_command->lod = lod_index;
+      glm_mat4_copy(model, draw_command->model_matrix);
+
+      if (game->render_commands.num_commands ==
+          game->render_commands.capacity) {
+
+        return;
+      }
+    }
+  }
 }
 
 static void render_real_3d(struct Game *game,
@@ -127,8 +217,6 @@ static void render_real_3d(struct Game *game,
 
   glClearColor(0.529f, 0.808f, 0.98f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-  struct Camera *camera = &game->camera;
 
   mat4 birdseye_projection_view = GLM_MAT4_IDENTITY_INIT;
   if (game->options.visualize_frustum) {
@@ -155,86 +243,42 @@ static void render_real_3d(struct Game *game,
 
   mat4 *projection_view = &matrices->projection_view_matrices[eye];
 
-  vec4 frustum_planes[6];
-  glm_frustum_planes(matrices->projection_view_matrices[eye], frustum_planes);
-
   glUniform2i(glGetUniformLocation(gl->poly_shader_program, "heightMapSize"),
               BASE_MAP_SIZE, BASE_MAP_SIZE);
 
-  for (int32_t i = 0; i < 9; ++i) {
-    int32_t x = (i / 3) - 1;
-    int32_t z = (i % 3) - 1;
-    /* if (i != 4) { */
-    /*   continue; */
-    /* } */
-
-    // NOTE not sure why I need to subtract 1 from X and Z to make the seams
-    // disappear when tiling the map
-    vec3 translate = {x * (BASE_MAP_SIZE - map->modifier), 0.0f,
-                      z * (BASE_MAP_SIZE - map->modifier)};
-    mat4 model = GLM_MAT4_IDENTITY_INIT;
-    vec3 map_scaler = {camera->terrain_scale, camera->terrain_scale,
-                       camera->terrain_scale};
-    glm_scale(model, map_scaler);
-    glm_translate(model, translate);
+  for (int32_t i_command = 0; i_command < game->render_commands.num_commands;
+       ++i_command) {
+    struct DrawCommand *command = &game->render_commands.commands[i_command];
+    vec4 blend_color = {1.0, 1.0, 1.0, 1.0};
+    if (game->options.visualize_lod) {
+      switch (command->lod) {
+      case 0:
+        glm_vec4_copy((vec4){1.0, 0.0, 0.0, 1.0}, blend_color);
+        break;
+      case 1:
+        glm_vec4_copy((vec4){0.0, 1.0, 0.0, 1.0}, blend_color);
+        break;
+      case 2:
+        glm_vec4_copy((vec4){0.0, 0.0, 1.0, 1.0}, blend_color);
+        break;
+      default:
+        break;
+      }
+    }
 
     mat4 mvp = GLM_MAT4_IDENTITY_INIT;
     if (game->options.visualize_frustum) {
-      glm_mat4_mul(birdseye_projection_view, model, mvp);
+      glm_mat4_mul(birdseye_projection_view, command->model_matrix, mvp);
     } else {
-      glm_mat4_mul(*projection_view, model, mvp);
+      glm_mat4_mul(*projection_view, command->model_matrix, mvp);
     }
     glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "mvp"), 1,
                        GL_FALSE, (float *)mvp);
-    for (int32_t i_section = 0; i_section < MAP_SECTION_COUNT; ++i_section) {
 
-      struct MapSection *section = &map->sections[i_section];
-
-      vec3 cam_terrain_position;
-      glm_vec3_mul(camera->position, CAMERA_TO_TERRAIN, cam_terrain_position);
-
-      vec3 section_center;
-      glm_vec3_add(section->center, translate, section_center);
-
-      {
-        vec3 scaled_section_center;
-        glm_vec3_scale(section_center, camera->terrain_scale,
-                       scaled_section_center);
-        if (!is_sphere_in_frustum(frustum_planes, scaled_section_center,
-                                  section->bounding_sphere_radius *
-                                      camera->terrain_scale)) {
-          continue;
-        }
-      }
-
-      vec4 lod_blend_color = {1.0, 1.0, 1.0, 1.0};
-      float distance = glm_vec3_distance(cam_terrain_position, section_center);
-      int32_t lod_index = 0;
-      if (distance <= 256.0f) {
-        lod_index = 0;
-        lod_blend_color[1] = 0.0;
-        lod_blend_color[2] = 0.0;
-      } else if (distance < 512.0) {
-        lod_index = 1;
-        lod_blend_color[0] = 0.0;
-        lod_blend_color[2] = 0.0;
-      } else {
-        lod_index = 2;
-        lod_blend_color[0] = 0.0;
-        lod_blend_color[1] = 0.0;
-      }
-
-      if (!game->options.visualize_lod) {
-        lod_blend_color[0] = 1.0;
-        lod_blend_color[1] = 1.0;
-        lod_blend_color[2] = 1.0;
-      }
-      glUniform4fv(glGetUniformLocation(gl->poly_shader_program, "blendColor"),
-                   1, lod_blend_color);
-      struct Lod *lod = &section->lods[lod_index];
-      glDrawElements(GL_TRIANGLES, lod->num_indices, GL_UNSIGNED_INT,
-                     (void *)(uintptr_t)(lod->offset * sizeof(int32_t)));
-    }
+    glUniform4fv(glGetUniformLocation(gl->poly_shader_program, "blendColor"), 1,
+                 blend_color);
+    glDrawElements(GL_TRIANGLES, command->mesh.num_indices, GL_UNSIGNED_INT,
+                   (void *)(uintptr_t)(command->mesh.offset * sizeof(int32_t)));
   }
 
   glBindVertexArray(0);
@@ -277,6 +321,7 @@ static void render_real_3d(struct Game *game,
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glDisable(GL_BLEND);
   }
@@ -312,6 +357,8 @@ static void render_buffer_to_gl(struct FrameBuffer *frame,
 void render_game(struct Game *game, struct InputMatrices *matrices) {
   struct RenderingMatrices rendering_matrices;
   compute_matrices(game, matrices, &rendering_matrices);
+
+  generate_draw_commands(game, &rendering_matrices);
 
   int32_t view_count = rendering_matrices.enable_stereo ? 2 : 1;
   for (int32_t i = 0; i < view_count; ++i) {
@@ -1071,6 +1118,8 @@ int32_t game_init(struct Game *game, int32_t width, int32_t height) {
   game->options.visualize_lod = false;
   game->options.visualize_frustum = false;
   game->options.show_wireframe = false;
+  game->render_commands.capacity = sizeof(game->render_commands.commands) /
+                                   sizeof(game->render_commands.commands[0]);
   for (int i = 0; i < 2; ++i) {
     game->trigger_set[i] = true;
   }
