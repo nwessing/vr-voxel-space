@@ -112,6 +112,67 @@ static void compute_matrices(struct Game *game, struct InputMatrices *matrices,
   }
 }
 
+static void generate_draw_commands_for_map(struct Game *game, struct Map *map,
+                                           vec4 frustum_planes[6],
+                                           int32_t budget, int32_t *cost,
+                                           int32_t x, int32_t z) {
+  struct Camera *camera = &game->camera;
+  vec3 translate = {x * (BASE_MAP_SIZE - map->modifier), 0.0f,
+                    z * (BASE_MAP_SIZE - map->modifier)};
+  mat4 model = GLM_MAT4_IDENTITY_INIT;
+  vec3 map_scaler = {camera->terrain_scale, camera->terrain_scale,
+                     camera->terrain_scale};
+  glm_scale(model, map_scaler);
+  glm_translate(model, translate);
+
+  for (int32_t i_section = 0; i_section < MAP_SECTION_COUNT; ++i_section) {
+    if (game->render_commands.num_commands == game->render_commands.capacity ||
+        *cost >= budget) {
+      return;
+    }
+
+    struct MapSection *section = &map->sections[i_section];
+
+    vec3 cam_terrain_position;
+    glm_vec3_mul(camera->position, CAMERA_TO_TERRAIN, cam_terrain_position);
+
+    vec3 section_center;
+    glm_vec3_add(section->center, translate, section_center);
+
+    {
+      vec3 scaled_section_center;
+      glm_vec3_scale(section_center, camera->terrain_scale,
+                     scaled_section_center);
+      if (!is_sphere_in_frustum(frustum_planes, scaled_section_center,
+                                section->bounding_sphere_radius *
+                                    camera->terrain_scale)) {
+        continue;
+      }
+    }
+
+    float distance = glm_vec3_distance(cam_terrain_position, section_center);
+    int32_t lod_index = 0;
+    if (distance <= 256.0f) {
+      lod_index = 0;
+      *cost += 16;
+    } else if (distance < 512.0) {
+      lod_index = 1;
+      *cost += 4;
+    } else {
+      lod_index = 2;
+      *cost += 1;
+    }
+
+    struct Mesh *mesh = &section->lods[lod_index];
+    struct DrawCommand *draw_command =
+        &game->render_commands.commands[game->render_commands.num_commands];
+    ++game->render_commands.num_commands;
+    draw_command->mesh = *mesh;
+    draw_command->lod = lod_index;
+    glm_mat4_copy(model, draw_command->model_matrix);
+  }
+}
+
 /*!
  * Calculates what the game should render. Performs LOD selection and frustum
  * culling
@@ -122,7 +183,7 @@ static void compute_matrices(struct Game *game, struct InputMatrices *matrices,
 static void generate_draw_commands(struct Game *game,
                                    struct RenderingMatrices *matrices) {
   struct Map *map = &game->maps[game->map_index];
-  struct Camera *camera = &game->camera;
+  /* struct Camera *camera = &game->camera; */
 
   vec4 frustum_planes[6];
   if (matrices->enable_stereo) {
@@ -132,8 +193,8 @@ static void generate_draw_commands(struct Game *game,
                        right_eye_frustum_planes);
 
     // Create combined frustum by assuming near, far, bottom, top planes
-    // are the same for each eye. Use left plane from left eye, and right plane
-    // from right eye.
+    // are the same for each eye. Use left plane from left eye, and right
+    // plane from right eye.
     glm_vec4_copy(right_eye_frustum_planes[1], frustum_planes[1]);
   } else {
     glm_frustum_planes(matrices->projection_view_matrices[0], frustum_planes);
@@ -141,62 +202,39 @@ static void generate_draw_commands(struct Game *game,
 
   game->render_commands.num_commands = 0;
 
-  for (int32_t i = 0; i < 9; ++i) {
-    int32_t x = (i / 3) - 1;
-    int32_t z = (i % 3) - 1;
-
-    // NOTE not sure why I need to subtract 1 from X and Z to make the seams
-    // disappear when tiling the map
-    vec3 translate = {x * (BASE_MAP_SIZE - map->modifier), 0.0f,
-                      z * (BASE_MAP_SIZE - map->modifier)};
-    mat4 model = GLM_MAT4_IDENTITY_INIT;
-    vec3 map_scaler = {camera->terrain_scale, camera->terrain_scale,
-                       camera->terrain_scale};
-    glm_scale(model, map_scaler);
-    glm_translate(model, translate);
-
-    for (int32_t i_section = 0; i_section < MAP_SECTION_COUNT; ++i_section) {
-      struct MapSection *section = &map->sections[i_section];
-
-      vec3 cam_terrain_position;
-      glm_vec3_mul(camera->position, CAMERA_TO_TERRAIN, cam_terrain_position);
-
-      vec3 section_center;
-      glm_vec3_add(section->center, translate, section_center);
-
-      {
-        vec3 scaled_section_center;
-        glm_vec3_scale(section_center, camera->terrain_scale,
-                       scaled_section_center);
-        if (!is_sphere_in_frustum(frustum_planes, scaled_section_center,
-                                  section->bounding_sphere_radius *
-                                      camera->terrain_scale)) {
-          continue;
-        }
+  int32_t budget = 200;
+  int32_t cost = 0, total_cost_last_iteration = 0;
+  int32_t map_count = 0;
+  int32_t area_size = 1;
+  int32_t x = 0, z = 0;
+  int32_t initial_row = 0, initial_column = 0;
+  while (cost < budget &&
+         game->render_commands.num_commands < game->render_commands.capacity) {
+    info("area_size = %d, x = %d, z = %d, cost = %d, commands = %d\n",
+         area_size, x, z, cost, game->render_commands.num_commands);
+    generate_draw_commands_for_map(game, map, frustum_planes, budget, &cost, x,
+                                   z);
+    ++map_count;
+    if (map_count == area_size * area_size) {
+      area_size += 2;
+      x = -(area_size / 2);
+      z = -(area_size / 2);
+      initial_row = x;
+      initial_column = z;
+      if (total_cost_last_iteration == cost) {
+        break;
       }
-
-      float distance = glm_vec3_distance(cam_terrain_position, section_center);
-      int32_t lod_index = 0;
-      if (distance <= 256.0f) {
-        lod_index = 0;
-      } else if (distance < 512.0) {
-        lod_index = 1;
-      } else {
-        lod_index = 2;
-      }
-
-      struct Mesh *mesh = &section->lods[lod_index];
-      struct DrawCommand *draw_command =
-          &game->render_commands.commands[game->render_commands.num_commands];
-      ++game->render_commands.num_commands;
-      draw_command->mesh = *mesh;
-      draw_command->lod = lod_index;
-      glm_mat4_copy(model, draw_command->model_matrix);
-
-      if (game->render_commands.num_commands ==
-          game->render_commands.capacity) {
-
-        return;
+      total_cost_last_iteration = cost;
+    } else {
+      if (z == initial_column && x != initial_row + area_size - 1) {
+        ++x;
+      } else if (x == initial_row + area_size - 1 &&
+                 z != initial_column + area_size - 1) {
+        ++z;
+      } else if (z == initial_column + area_size - 1 && x != initial_row) {
+        --x;
+      } else if (x == initial_row) {
+        --z;
       }
     }
   }
@@ -876,8 +914,9 @@ static void create_map_gl_data(struct Map *map) {
 
       map_vertices[v_index][0] = x * modifier;
 
-      // NOTE When sampling 1 past the width or height, wrap around to get the
-      // depth value. So that edges of the maps match up nice when tiling.
+      // NOTE When sampling 1 past the width or height, wrap around to get
+      // the depth value. So that edges of the maps match up nice when
+      // tiling.
       int32_t height_sample_x = x;
       if (height_sample_x == extents.width - 1) {
         height_sample_x = 0;

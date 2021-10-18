@@ -363,9 +363,6 @@ static void renderer_destroy(struct renderer *renderer) {
 static ovrLayerProjection2 renderer_render_frame(struct Game *game,
                                                  struct renderer *renderer,
                                                  ovrTracking2 *tracking) {
-  ovrMatrix4f model_matrix = ovrMatrix4f_CreateTranslation(0.0, 0.0, -1.0);
-  model_matrix = ovrMatrix4f_Transpose(&model_matrix);
-
   ovrLayerProjection2 layer = vrapi_DefaultLayerProjection2();
   layer.Header.Flags |= VRAPI_FRAME_LAYER_FLAG_CHROMATIC_ABERRATION_CORRECTION;
   layer.HeadPose = tracking->HeadPose;
