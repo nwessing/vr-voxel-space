@@ -202,7 +202,7 @@ static void generate_draw_commands(struct Game *game,
 
   game->render_commands.num_commands = 0;
 
-  int32_t budget = 200;
+  int32_t budget = 150;
   int32_t cost = 0, total_cost_last_iteration = 0;
   int32_t map_count = 0;
   int32_t area_size = 1;
@@ -210,8 +210,8 @@ static void generate_draw_commands(struct Game *game,
   int32_t initial_row = 0, initial_column = 0;
   while (cost < budget &&
          game->render_commands.num_commands < game->render_commands.capacity) {
-    info("area_size = %d, x = %d, z = %d, cost = %d, commands = %d\n",
-         area_size, x, z, cost, game->render_commands.num_commands);
+    /* info("area_size = %d, x = %d, z = %d, cost = %d, commands = %d\n", */
+    /*      area_size, x, z, cost, game->render_commands.num_commands); */
     generate_draw_commands_for_map(game, map, frustum_planes, budget, &cost, x,
                                    z);
     ++map_count;
@@ -284,6 +284,45 @@ static void render_real_3d(struct Game *game,
   glUniform2i(glGetUniformLocation(gl->poly_shader_program, "heightMapSize"),
               BASE_MAP_SIZE, BASE_MAP_SIZE);
 
+  glBindBuffer(GL_DRAW_INDIRECT_BUFFER, gl->draw_command_vbo);
+  int32_t draw_indirect_buffer_size;
+  glGetBufferParameteriv(GL_DRAW_INDIRECT_BUFFER, GL_BUFFER_SIZE,
+                         &draw_indirect_buffer_size);
+  int32_t required_buffer_size =
+      game->render_commands.num_commands *
+      (int32_t)sizeof(struct DrawElementsIndirectCommand);
+
+  if (draw_indirect_buffer_size < required_buffer_size) {
+    info("Reallocating indirect draw buffer to %d bytes\n",
+         required_buffer_size);
+    glBufferData(GL_DRAW_INDIRECT_BUFFER, required_buffer_size, NULL,
+                 GL_DYNAMIC_DRAW);
+    draw_indirect_buffer_size = required_buffer_size;
+  }
+
+  struct DrawElementsIndirectCommand *gl_commands =
+      glMapBufferRange(GL_DRAW_INDIRECT_BUFFER, 0, draw_indirect_buffer_size,
+                       GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
+  if (gl_commands == NULL) {
+    GLenum gl_error = glGetError();
+    error("gl_commands was NULL: %d\n", gl_error);
+    assert(gl_commands != NULL);
+  }
+
+  // Populate indirect draw commands
+  for (int32_t i_command = 0; i_command < game->render_commands.num_commands;
+       ++i_command) {
+    struct DrawCommand *command = &game->render_commands.commands[i_command];
+
+    struct DrawElementsIndirectCommand *gl_command = &gl_commands[i_command];
+    gl_command->count = command->mesh.num_indices;
+    gl_command->instance_count = 1;
+    gl_command->first_index = command->mesh.offset;
+    gl_command->base_vertex = 0;
+    gl_command->reserved_must_be_zero = 0;
+  }
+  assert(glUnmapBuffer(GL_DRAW_INDIRECT_BUFFER) == GL_TRUE);
+
   for (int32_t i_command = 0; i_command < game->render_commands.num_commands;
        ++i_command) {
     struct DrawCommand *command = &game->render_commands.commands[i_command];
@@ -310,14 +349,19 @@ static void render_real_3d(struct Game *game,
     } else {
       glm_mat4_mul(*projection_view, command->model_matrix, mvp);
     }
+
     glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "mvp"), 1,
                        GL_FALSE, (float *)mvp);
 
     glUniform4fv(glGetUniformLocation(gl->poly_shader_program, "blendColor"), 1,
                  blend_color);
-    glDrawElements(GL_TRIANGLES, command->mesh.num_indices, GL_UNSIGNED_INT,
-                   (void *)(uintptr_t)(command->mesh.offset * sizeof(int32_t)));
+
+    glDrawElementsIndirect(
+        GL_TRIANGLES, GL_UNSIGNED_INT,
+        (void *)(i_command * sizeof(struct DrawElementsIndirectCommand)));
   }
+
+  glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
 
   glBindVertexArray(0);
 
@@ -1018,6 +1062,7 @@ static void create_gl_objects(struct Game *game) {
   glBindBuffer(GL_ARRAY_BUFFER, gl->frustum_vis_vbo);
   glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
   glEnableVertexAttribArray(0);
+  glBindVertexArray(0);
 
   glGenTextures(1, &gl->white_tex_id);
   glBindTexture(GL_TEXTURE_2D, gl->white_tex_id);
@@ -1029,6 +1074,14 @@ static void create_gl_objects(struct Game *game) {
   uint8_t white_tex_pixels[4] = {255, 255, 255, 0};
   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 1, 1, 0, GL_RGB, GL_UNSIGNED_BYTE,
                white_tex_pixels);
+
+  glGenBuffers(1, &gl->draw_command_vbo);
+  glBindBuffer(GL_DRAW_INDIRECT_BUFFER, gl->draw_command_vbo);
+  // Reserve space for 500 draw commands
+  glBufferData(GL_DRAW_INDIRECT_BUFFER,
+               500 * sizeof(struct DrawElementsIndirectCommand), NULL,
+               GL_DYNAMIC_DRAW);
+  glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
 
   char *vertex_shader_source = read_file("src/shaders/to_screen_space.vert");
   assert(vertex_shader_source != NULL);

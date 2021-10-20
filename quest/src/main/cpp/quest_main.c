@@ -8,13 +8,17 @@
 #include "types.h"
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
-#include <GLES3/gl3.h>
+#include <GLES2/gl2ext.h>
+#include <GLES3/gl31.h>
 #include <android/log.h>
 #include <android/window.h>
+#include <assert.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <unistd.h>
+
+#define WESSING_DEBUG
 
 static const char *TAG = "com.wessing.vr_voxel_space";
 
@@ -201,8 +205,13 @@ static void egl_create(struct egl *egl) {
   free(configs);
 
   info("create EGL context");
+  // clang-format off
   static const EGLint CONTEXT_ATTRIBS[] = {EGL_CONTEXT_CLIENT_VERSION, 3,
+#ifdef WESSING_DEBUG
+                                           EGL_CONTEXT_FLAGS_KHR, EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR,
+#endif
                                            EGL_NONE};
+  // clang-format on
   egl->context = eglCreateContext(egl->display, found_config, EGL_NO_CONTEXT,
                                   CONTEXT_ATTRIBS);
   if (egl->context == EGL_NO_CONTEXT) {
@@ -349,6 +358,14 @@ struct renderer {
 
 static void renderer_create(struct renderer *renderer, GLsizei width,
                             GLsizei height) {
+
+  int32_t num_extensions = 0;
+  glGetIntegerv(GL_NUM_EXTENSIONS, &num_extensions);
+  for (int32_t i = 0; i < num_extensions; ++i) {
+    const GLubyte *extension_name = glGetStringi(GL_EXTENSIONS, i);
+    info("EXTENSION: %s\n", extension_name);
+  }
+
   for (int i = 0; i < VRAPI_FRAME_LAYER_EYE_MAX; ++i) {
     framebuffer_create(&renderer->framebuffers[i], width, height);
   }
@@ -588,6 +605,27 @@ static void app_create(struct app *app, ovrJava *java) {
   app->frame_index = 0;
 }
 
+static PFNGLDEBUGMESSAGECALLBACKKHRPROC glDebugMessageCallbackKHR;
+
+static void debug_message_callback(GLenum source, GLenum type, GLuint id,
+                                   GLenum severity, GLsizei length,
+                                   const GLchar *message,
+                                   const void *user_param) {
+  (void)source;
+  (void)type;
+  (void)id;
+  (void)severity;
+  (void)length;
+  (void)user_param;
+  info("GL: %s\n", message);
+}
+
+static void load_gl_extension_functions() {
+  glDebugMessageCallbackKHR =
+      (PFNGLDEBUGMESSAGECALLBACKKHRPROC)eglGetProcAddress(
+          "glDebugMessageCallbackKHR");
+}
+
 static void app_destroy(struct app *app) {
   egl_destroy(&app->egl);
   renderer_destroy(&app->renderer);
@@ -613,6 +651,14 @@ void android_main(struct android_app *android_app) {
 
   struct app app;
   app_create(&app, &java);
+
+  load_gl_extension_functions();
+
+#ifdef WESSING_DEBUG
+  assert(glDebugMessageCallbackKHR != NULL);
+  glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS_KHR);
+  glDebugMessageCallbackKHR(debug_message_callback, NULL);
+#endif
 
   struct Game *game = calloc(1, sizeof(struct Game));
   if (game_init(game, 800, 600) == GAME_ERROR) {

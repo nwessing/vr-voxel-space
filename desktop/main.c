@@ -45,8 +45,8 @@ int main(void) {
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS,
                       SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
   SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
   SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
 
@@ -84,6 +84,11 @@ int main(void) {
   }
 
   assert(glGetError() == GL_NO_ERROR);
+
+  int32_t gl_major, gl_minor;
+  glGetIntegerv(GL_MAJOR_VERSION, &gl_major);
+  glGetIntegerv(GL_MINOR_VERSION, &gl_minor);
+  info("OpenGL %d.%d\n", gl_major, gl_minor);
 
   info("Game data struct is %lu bytes\n", sizeof(struct Game));
   struct Game *game = calloc(1, sizeof(struct Game));

@@ -72,6 +72,14 @@ struct RenderingMatrices {
   mat4 projection_view_matrices[2];
 };
 
+struct DrawElementsIndirectCommand {
+  uint32_t count;
+  uint32_t instance_count;
+  uint32_t first_index;
+  uint32_t base_vertex;
+  uint32_t reserved_must_be_zero;
+};
+
 struct OpenGLData {
   GLuint frame_buffer;
   GLuint poly_shader_program;
@@ -83,6 +91,7 @@ struct OpenGLData {
   GLuint frustum_vis_vao;
   GLuint frustum_vis_vbo;
   GLuint white_tex_id;
+  GLuint draw_command_vbo;
 };
 
 struct GameOptions {
