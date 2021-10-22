@@ -115,7 +115,8 @@ static void compute_matrices(struct Game *game, struct InputMatrices *matrices,
 static void generate_draw_commands_for_map(struct Game *game, struct Map *map,
                                            vec4 frustum_planes[6],
                                            int32_t budget, int32_t *cost,
-                                           int32_t x, int32_t z) {
+                                           int32_t x, int32_t z,
+                                           int32_t i_section) {
   struct Camera *camera = &game->camera;
   vec3 translate = {x * (BASE_MAP_SIZE - map->modifier), 0.0f,
                     z * (BASE_MAP_SIZE - map->modifier)};
@@ -125,52 +126,54 @@ static void generate_draw_commands_for_map(struct Game *game, struct Map *map,
   glm_scale(model, map_scaler);
   glm_translate(model, translate);
 
-  for (int32_t i_section = 0; i_section < MAP_SECTION_COUNT; ++i_section) {
-    if (game->render_commands.num_commands == game->render_commands.capacity ||
-        *cost >= budget) {
-      return;
-    }
-
-    struct MapSection *section = &map->sections[i_section];
-
-    vec3 cam_terrain_position;
-    glm_vec3_mul(camera->position, CAMERA_TO_TERRAIN, cam_terrain_position);
-
-    vec3 section_center;
-    glm_vec3_add(section->center, translate, section_center);
-
-    {
-      vec3 scaled_section_center;
-      glm_vec3_scale(section_center, camera->terrain_scale,
-                     scaled_section_center);
-      if (!is_sphere_in_frustum(frustum_planes, scaled_section_center,
-                                section->bounding_sphere_radius *
-                                    camera->terrain_scale)) {
-        continue;
-      }
-    }
-
-    float distance = glm_vec3_distance(cam_terrain_position, section_center);
-    int32_t lod_index = 0;
-    if (distance <= 256.0f) {
-      lod_index = 0;
-      *cost += 16;
-    } else if (distance < 512.0) {
-      lod_index = 1;
-      *cost += 4;
-    } else {
-      lod_index = 2;
-      *cost += 1;
-    }
-
-    struct Mesh *mesh = &section->lods[lod_index];
-    struct DrawCommand *draw_command =
-        &game->render_commands.commands[game->render_commands.num_commands];
-    ++game->render_commands.num_commands;
-    draw_command->mesh = *mesh;
-    draw_command->lod = lod_index;
-    glm_mat4_copy(model, draw_command->model_matrix);
+  /* for (int32_t i_section = 0; i_section < MAP_SECTION_COUNT; ++i_section) {
+   */
+  if (game->render_commands.num_commands == game->render_commands.capacity ||
+      *cost >= budget) {
+    return;
   }
+
+  struct MapSection *section = &map->sections[i_section];
+
+  vec3 cam_terrain_position;
+  glm_vec3_mul(camera->position, CAMERA_TO_TERRAIN, cam_terrain_position);
+
+  vec3 section_center;
+  glm_vec3_add(section->center, translate, section_center);
+
+  {
+    vec3 scaled_section_center;
+    glm_vec3_scale(section_center, camera->terrain_scale,
+                   scaled_section_center);
+    if (!is_sphere_in_frustum(frustum_planes, scaled_section_center,
+                              section->bounding_sphere_radius *
+                                  camera->terrain_scale)) {
+      return;
+      /* continue; */
+    }
+  }
+
+  float distance = glm_vec3_distance(cam_terrain_position, section_center);
+  int32_t lod_index = 0;
+  if (distance <= 256.0f) {
+    lod_index = 0;
+    *cost += 16;
+  } else if (distance < 512.0) {
+    lod_index = 1;
+    *cost += 4;
+  } else {
+    lod_index = 2;
+    *cost += 1;
+  }
+
+  struct Mesh *mesh = &section->lods[lod_index];
+  struct DrawCommand *draw_command =
+      &game->render_commands.commands[game->render_commands.num_commands];
+  ++game->render_commands.num_commands;
+  draw_command->mesh = *mesh;
+  draw_command->lod = lod_index;
+  glm_mat4_copy(model, draw_command->model_matrix);
+  /* } */
 }
 
 /*!
@@ -203,17 +206,29 @@ static void generate_draw_commands(struct Game *game,
   game->render_commands.num_commands = 0;
 
   int32_t budget = 150;
-  int32_t cost = 0, total_cost_last_iteration = 0;
+  int32_t cost = 0;
   int32_t map_count = 0;
   int32_t area_size = 1;
   int32_t x = 0, z = 0;
   int32_t initial_row = 0, initial_column = 0;
+  int32_t iteration = 0, iteration_max = 10000;
   while (cost < budget &&
          game->render_commands.num_commands < game->render_commands.capacity) {
     /* info("area_size = %d, x = %d, z = %d, cost = %d, commands = %d\n", */
     /*      area_size, x, z, cost, game->render_commands.num_commands); */
-    generate_draw_commands_for_map(game, map, frustum_planes, budget, &cost, x,
-                                   z);
+
+    int32_t map_x = (x >= 0 ? x : -abs(x - 3)) / 4;
+    int32_t map_z = (z >= 0 ? z : -abs(z - 3)) / 4;
+    int32_t section_x = x > 0 ? x : (x + (-map_x * 4));
+    int32_t section_z = z > 0 ? z : (z + (-map_z * 4));
+    int32_t map_section = (section_x % 4) + ((section_z % 4) * 4);
+
+    /* info("x = %d, z = %d, map_x = %d, map_z = %d, section = %d\n", x, z,
+     * map_x, */
+    /*      map_z, map_section); */
+    assert(map_section >= 0 && map_section < 16);
+    generate_draw_commands_for_map(game, map, frustum_planes, budget, &cost,
+                                   map_x, map_z, map_section);
     ++map_count;
     if (map_count == area_size * area_size) {
       area_size += 2;
@@ -221,10 +236,6 @@ static void generate_draw_commands(struct Game *game,
       z = -(area_size / 2);
       initial_row = x;
       initial_column = z;
-      if (total_cost_last_iteration == cost) {
-        break;
-      }
-      total_cost_last_iteration = cost;
     } else {
       if (z == initial_column && x != initial_row + area_size - 1) {
         ++x;
@@ -236,6 +247,10 @@ static void generate_draw_commands(struct Game *game,
       } else if (x == initial_row) {
         --z;
       }
+    }
+    ++iteration;
+    if (iteration >= iteration_max) {
+      break;
     }
   }
 }
@@ -980,8 +995,8 @@ static void create_map_gl_data(struct Map *map) {
   int32_t section_width = extents.width / MAP_X_SEGMENTS;
   int32_t section_height = extents.height / MAP_Y_SEGMENTS;
   for (int32_t i_section = 0; i_section < MAP_SECTION_COUNT; ++i_section) {
-    struct Rect rect = {.x = (i_section / MAP_X_SEGMENTS) * section_width,
-                        .y = (i_section % MAP_Y_SEGMENTS) * section_height,
+    struct Rect rect = {.x = (i_section % MAP_X_SEGMENTS) * section_width,
+                        .y = (i_section / MAP_Y_SEGMENTS) * section_height,
                         .width = section_width,
                         .height = section_height};
     struct MapSection *section = &map->sections[i_section];
