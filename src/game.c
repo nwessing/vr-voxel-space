@@ -114,8 +114,7 @@ static void compute_matrices(struct Game *game, struct InputMatrices *matrices,
 
 static void generate_draw_commands_for_map(struct Game *game, struct Map *map,
                                            vec4 frustum_planes[6],
-                                           int32_t budget, int32_t *cost,
-                                           int32_t x, int32_t z,
+                                           int32_t *cost, int32_t x, int32_t z,
                                            int32_t i_section) {
   struct Camera *camera = &game->camera;
   vec3 translate = {x * (BASE_MAP_SIZE - map->modifier), 0.0f,
@@ -128,8 +127,7 @@ static void generate_draw_commands_for_map(struct Game *game, struct Map *map,
 
   /* for (int32_t i_section = 0; i_section < MAP_SECTION_COUNT; ++i_section) {
    */
-  if (game->render_commands.num_commands == game->render_commands.capacity ||
-      *cost >= budget) {
+  if (game->render_commands.num_commands == game->render_commands.capacity) {
     return;
   }
 
@@ -212,25 +210,30 @@ static void generate_draw_commands(struct Game *game,
   int32_t x = 0, z = 0;
   int32_t initial_row = 0, initial_column = 0;
   int32_t iteration = 0, iteration_max = 10000;
-  while (cost < budget &&
-         game->render_commands.num_commands < game->render_commands.capacity) {
+  while (game->render_commands.num_commands < game->render_commands.capacity) {
     /* info("area_size = %d, x = %d, z = %d, cost = %d, commands = %d\n", */
     /*      area_size, x, z, cost, game->render_commands.num_commands); */
 
-    int32_t map_x = (x >= 0 ? x : -abs(x - 3)) / 4;
-    int32_t map_z = (z >= 0 ? z : -abs(z - 3)) / 4;
-    int32_t section_x = x > 0 ? x : (x + (-map_x * 4));
-    int32_t section_z = z > 0 ? z : (z + (-map_z * 4));
-    int32_t map_section = (section_x % 4) + ((section_z % 4) * 4);
+    int32_t map_x =
+        (x >= 0 ? x : -abs(x - (MAP_X_SEGMENTS - 1))) / MAP_X_SEGMENTS;
+    int32_t map_z =
+        (z >= 0 ? z : -abs(z - (MAP_Y_SEGMENTS - 1))) / MAP_Y_SEGMENTS;
+    int32_t section_x = x > 0 ? x : (x + (-map_x * MAP_X_SEGMENTS));
+    int32_t section_z = z > 0 ? z : (z + (-map_z * MAP_Y_SEGMENTS));
+    int32_t map_section = (section_x % MAP_X_SEGMENTS) +
+                          ((section_z % MAP_Y_SEGMENTS) * MAP_X_SEGMENTS);
 
     /* info("x = %d, z = %d, map_x = %d, map_z = %d, section = %d\n", x, z,
      * map_x, */
     /*      map_z, map_section); */
-    assert(map_section >= 0 && map_section < 16);
-    generate_draw_commands_for_map(game, map, frustum_planes, budget, &cost,
-                                   map_x, map_z, map_section);
+    assert(map_section >= 0 && map_section < MAP_SECTION_COUNT);
+    generate_draw_commands_for_map(game, map, frustum_planes, &cost, map_x,
+                                   map_z, map_section);
     ++map_count;
     if (map_count == area_size * area_size) {
+      if (cost >= budget) {
+        break;
+      }
       area_size += 2;
       x = -(area_size / 2);
       z = -(area_size / 2);
