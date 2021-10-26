@@ -54,6 +54,7 @@ struct Camera {
   vec3 up;
   vec3 right;
   vec3 front;
+  vec4 sky_color;
 };
 
 struct InputMatrices {
@@ -96,6 +97,7 @@ struct OpenGLData {
 
 struct GameOptions {
   bool visualize_lod;
+  bool show_fog;
   bool show_wireframe;
   bool do_raycasting;
   bool render_stereo;

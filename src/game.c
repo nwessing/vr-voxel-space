@@ -271,7 +271,9 @@ static void render_real_3d(struct Game *game,
   }
 #endif
 
-  glClearColor(0.529f, 0.808f, 0.98f, 1.0f);
+  vec4 *sky_color = &game->camera.sky_color;
+  glClearColor((*sky_color)[0], (*sky_color)[1], (*sky_color)[2],
+               (*sky_color)[3]);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
   mat4 birdseye_projection_view = GLM_MAT4_IDENTITY_INIT;
@@ -301,6 +303,20 @@ static void render_real_3d(struct Game *game,
 
   glUniform2i(glGetUniformLocation(gl->poly_shader_program, "heightMapSize"),
               BASE_MAP_SIZE, BASE_MAP_SIZE);
+  glUniform4fv(glGetUniformLocation(gl->poly_shader_program, "fogColor"), 1,
+               *sky_color);
+  glUniform1f(glGetUniformLocation(gl->poly_shader_program, "terrainScale"),
+              game->camera.terrain_scale);
+  glUniform1ui(glGetUniformLocation(gl->poly_shader_program, "flags"),
+               game->options.visualize_frustum || !game->options.show_fog ? 0
+                                                                          : 1);
+
+  vec3 camera_world_position;
+  glm_vec3_mul(game->camera.position, CAMERA_TO_TERRAIN, camera_world_position);
+  glm_vec3_scale(camera_world_position, game->camera.terrain_scale,
+                 camera_world_position);
+  glUniform3fv(glGetUniformLocation(gl->poly_shader_program, "cameraPosition"),
+               1, camera_world_position);
 
   glBindBuffer(GL_DRAW_INDIRECT_BUFFER, gl->draw_command_vbo);
   int32_t draw_indirect_buffer_size;
@@ -370,6 +386,8 @@ static void render_real_3d(struct Game *game,
 
     glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "mvp"), 1,
                        GL_FALSE, (float *)mvp);
+    glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "model"),
+                       1, GL_FALSE, (float *)command->model_matrix);
 
     glUniform4fv(glGetUniformLocation(gl->poly_shader_program, "blendColor"), 1,
                  blend_color);
@@ -723,6 +741,9 @@ void update_game(struct Game *game, struct KeyboardState *keyboard,
     float half = game->camera.terrain_scale / 2.0f;
     game->camera.terrain_scale += half * elapsed;
   }
+
+  game->options.show_fog = !is_key_pressed(&game->keyboard, 'h') &&
+                           game->controller[LEFT_CONTROLLER_INDEX].grip < 0.5f;
 
   /* printf("pos = %f, %f, %f, rot = %f\n", game->camera.position[0], */
   /*        game->camera.position[1], game->camera.position[2], */
@@ -1221,6 +1242,7 @@ int32_t game_init(struct Game *game, int32_t width, int32_t height) {
               .clip = .06f * game->frame.width,
               .distance = 800,
           },
+      .sky_color = {0.529f, 0.808f, 0.98f, 1.0f},
   };
 
   create_gl_objects(game);
