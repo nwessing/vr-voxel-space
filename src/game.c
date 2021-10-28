@@ -125,8 +125,6 @@ static void generate_draw_commands_for_map(struct Game *game, struct Map *map,
   glm_scale(model, map_scaler);
   glm_translate(model, translate);
 
-  /* for (int32_t i_section = 0; i_section < MAP_SECTION_COUNT; ++i_section) {
-   */
   if (game->render_commands.num_commands == game->render_commands.capacity) {
     return;
   }
@@ -147,7 +145,6 @@ static void generate_draw_commands_for_map(struct Game *game, struct Map *map,
                               section->bounding_sphere_radius *
                                   camera->terrain_scale)) {
       return;
-      /* continue; */
     }
   }
 
@@ -171,7 +168,6 @@ static void generate_draw_commands_for_map(struct Game *game, struct Map *map,
   draw_command->mesh = *mesh;
   draw_command->lod = lod_index;
   glm_mat4_copy(model, draw_command->model_matrix);
-  /* } */
 }
 
 /*!
