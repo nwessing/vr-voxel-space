@@ -3,6 +3,14 @@
   precision highp int;
 #endif
 
+#if defined(GL_OVR_multiview2)
+  #extension GL_OVR_multiview2 : enable
+  layout(num_views = 2) in;
+  #define VIEW_ID gl_ViewID_OVR
+#else
+  #define VIEW_ID 0
+#endif
+
 layout (location = 0) in vec3 aPos;
 
 out vec3 Position;
@@ -12,12 +20,12 @@ out float CameraDistance;
 uniform vec3 cameraPosition;
 
 // Per instance uniforms
-uniform mat4 mvp;
+uniform mat4 mvp[2];
 uniform mat4 model;
 
 void main()
 {
-  gl_Position = mvp * vec4(aPos.x, aPos.y, aPos.z, 1.0);
+  gl_Position = mvp[VIEW_ID] * vec4(aPos.x, aPos.y, aPos.z, 1.0);
   WorldPosition = vec4(gl_Position);
   CameraDistance = distance(cameraPosition, vec3(model * vec4(aPos, 1.0)));
   Position = aPos;

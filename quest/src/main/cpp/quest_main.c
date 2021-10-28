@@ -19,8 +19,14 @@
 #include <unistd.h>
 
 #define WESSING_DEBUG
+#define MULTISAMPLE_SAMPLES 1
 
 static const char *TAG = "com.wessing.vr_voxel_space";
+
+// GL extension function pointers
+static PFNGLDEBUGMESSAGECALLBACKKHRPROC glDebugMessageCallbackKHR;
+static PFNGLFRAMEBUFFERTEXTUREMULTISAMPLEMULTIVIEWOVRPROC
+    glFramebufferTextureMultisampleMultiviewOVR;
 
 int error(const char *format, ...) {
   va_list args;
@@ -94,13 +100,13 @@ static const char *gl_get_framebuffer_status_string(GLenum status) {
   }
 }
 
-struct egl {
+struct Egl {
   EGLDisplay display;
   EGLContext context;
   EGLSurface surface;
 };
 
-static void egl_create(struct egl *egl) {
+static void egl_create(struct Egl *egl) {
   info("get EGL display");
   egl->display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
   if (egl->display == EGL_NO_DISPLAY) {
@@ -239,89 +245,85 @@ static void egl_create(struct egl *egl) {
   }
 }
 
-static void egl_destroy(struct egl *egl) {
-  /* info("make EGL context no longer current"); */
+static void egl_destroy(struct Egl *egl) {
   eglMakeCurrent(egl->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-
-  /* info("destroy EGL surface"); */
   eglDestroySurface(egl->display, egl->surface);
-
-  /* info("destroy EGL context"); */
   eglDestroyContext(egl->display, egl->context);
-
-  /* info("terminate EGL display"); */
   eglTerminate(egl->display);
 }
 
-struct framebuffer {
+struct Renderer {
   int swap_chain_index;
   int swap_chain_length;
   GLsizei width;
   GLsizei height;
   ovrTextureSwapChain *color_texture_swap_chain;
-  GLuint *depth_renderbuffers;
+  GLuint *depth_textures;
   GLuint *framebuffers;
 };
 
-static void framebuffer_create(struct framebuffer *framebuffer, GLsizei width,
-                               GLsizei height) {
-  framebuffer->swap_chain_index = 0;
-  framebuffer->width = width;
-  framebuffer->height = height;
+static void renderer_create(struct Renderer *renderer, GLsizei width,
+                            GLsizei height) {
 
-  /* info("create color texture swap chain"); */
-  framebuffer->color_texture_swap_chain = vrapi_CreateTextureSwapChain3(
-      VRAPI_TEXTURE_TYPE_2D, GL_RGBA8, width, height, 1, 3);
-  if (framebuffer->color_texture_swap_chain == NULL) {
+  int32_t num_extensions = 0;
+  glGetIntegerv(GL_NUM_EXTENSIONS, &num_extensions);
+  for (int32_t i = 0; i < num_extensions; ++i) {
+    const GLubyte *extension_name = glGetStringi(GL_EXTENSIONS, i);
+    info("EXTENSION: %s\n", extension_name);
+  }
+
+  renderer->swap_chain_index = 0;
+  renderer->width = width;
+  renderer->height = height;
+
+  renderer->color_texture_swap_chain = vrapi_CreateTextureSwapChain3(
+      VRAPI_TEXTURE_TYPE_2D_ARRAY, GL_RGBA8, width, height, 1, 3);
+  if (renderer->color_texture_swap_chain == NULL) {
     error("can't create color texture swap chain");
     exit(EXIT_FAILURE);
   }
 
-  framebuffer->swap_chain_length =
-      vrapi_GetTextureSwapChainLength(framebuffer->color_texture_swap_chain);
+  renderer->swap_chain_length =
+      vrapi_GetTextureSwapChainLength(renderer->color_texture_swap_chain);
 
-  /* info("allocate depth renderbuffers"); */
-  framebuffer->depth_renderbuffers =
-      malloc(framebuffer->swap_chain_length * sizeof(GLuint));
-  if (framebuffer->depth_renderbuffers == NULL) {
-    error("can't allocate depth renderbuffers");
+  renderer->depth_textures =
+      malloc(renderer->swap_chain_length * sizeof(GLuint));
+  if (renderer->depth_textures == NULL) {
+    error("can't allocate depth textures");
     exit(EXIT_FAILURE);
   }
 
-  /* info("allocate framebuffers"); */
-  framebuffer->framebuffers =
-      malloc(framebuffer->swap_chain_length * sizeof(GLuint));
-  if (framebuffer->framebuffers == NULL) {
+  renderer->framebuffers = malloc(renderer->swap_chain_length * sizeof(GLuint));
+  if (renderer->framebuffers == NULL) {
     error("can't allocate framebuffers");
     exit(EXIT_FAILURE);
   }
 
-  glGenRenderbuffers(framebuffer->swap_chain_length,
-                     framebuffer->depth_renderbuffers);
-  glGenFramebuffers(framebuffer->swap_chain_length, framebuffer->framebuffers);
-  for (int i = 0; i < framebuffer->swap_chain_length; ++i) {
-    /* info("create color texture %d", i); */
-    GLuint color_texture = vrapi_GetTextureSwapChainHandle(
-        framebuffer->color_texture_swap_chain, i);
-    glBindTexture(GL_TEXTURE_2D, color_texture);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glBindTexture(GL_TEXTURE_2D, 0);
+  glGenFramebuffers(renderer->swap_chain_length, renderer->framebuffers);
+  glGenTextures(renderer->swap_chain_length, renderer->depth_textures);
+  for (int i = 0; i < renderer->swap_chain_length; ++i) {
+    GLuint color_texture =
+        vrapi_GetTextureSwapChainHandle(renderer->color_texture_swap_chain, i);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, color_texture);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
 
-    /* info("create depth renderbuffer %d", i); */
-    glBindRenderbuffer(GL_RENDERBUFFER, framebuffer->depth_renderbuffers[i]);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
-    glBindRenderbuffer(GL_RENDERBUFFER, 0);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, renderer->depth_textures[i]);
+    glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_DEPTH_COMPONENT24, width, height,
+                   2);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
 
-    /* info("create framebuffer %d", i); */
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer->framebuffers[i]);
-    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                           GL_TEXTURE_2D, color_texture, 0);
-    glFramebufferRenderbuffer(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-                              GL_RENDERBUFFER,
-                              framebuffer->depth_renderbuffers[i]);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, renderer->framebuffers[i]);
+    glFramebufferTextureMultisampleMultiviewOVR(
+        GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, renderer->depth_textures[i],
+        0, MULTISAMPLE_SAMPLES, 0, 2);
+
+    glFramebufferTextureMultisampleMultiviewOVR(
+        GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, color_texture, 0,
+        MULTISAMPLE_SAMPLES, 0, 2);
 
     GLenum status = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER);
     if (status != GL_FRAMEBUFFER_COMPLETE) {
@@ -333,52 +335,18 @@ static void framebuffer_create(struct framebuffer *framebuffer, GLsizei width,
   }
 }
 
-static void framebuffer_destroy(struct framebuffer *framebuffer) {
-  /* info("destroy framebuffers"); */
-  glDeleteFramebuffers(framebuffer->swap_chain_length,
-                       framebuffer->framebuffers);
+static void renderer_destroy(struct Renderer *renderer) {
+  glDeleteFramebuffers(renderer->swap_chain_length, renderer->framebuffers);
+  glDeleteTextures(renderer->swap_chain_length, renderer->depth_textures);
 
-  /* info("destroy depth renderbuffers"); */
-  glDeleteRenderbuffers(framebuffer->swap_chain_length,
-                        framebuffer->depth_renderbuffers);
+  free(renderer->framebuffers);
+  free(renderer->depth_textures);
 
-  /* info("free framebuffers"); */
-  free(framebuffer->framebuffers);
-
-  /* info("free depth renderbuffers"); */
-  free(framebuffer->depth_renderbuffers);
-
-  /* info("destroy color texture swap chain"); */
-  vrapi_DestroyTextureSwapChain(framebuffer->color_texture_swap_chain);
-}
-
-struct renderer {
-  struct framebuffer framebuffers[VRAPI_FRAME_LAYER_EYE_MAX];
-};
-
-static void renderer_create(struct renderer *renderer, GLsizei width,
-                            GLsizei height) {
-
-  int32_t num_extensions = 0;
-  glGetIntegerv(GL_NUM_EXTENSIONS, &num_extensions);
-  for (int32_t i = 0; i < num_extensions; ++i) {
-    const GLubyte *extension_name = glGetStringi(GL_EXTENSIONS, i);
-    info("EXTENSION: %s\n", extension_name);
-  }
-
-  for (int i = 0; i < VRAPI_FRAME_LAYER_EYE_MAX; ++i) {
-    framebuffer_create(&renderer->framebuffers[i], width, height);
-  }
-}
-
-static void renderer_destroy(struct renderer *renderer) {
-  for (int i = 0; i < VRAPI_FRAME_LAYER_EYE_MAX; ++i) {
-    framebuffer_destroy(&renderer->framebuffers[i]);
-  }
+  vrapi_DestroyTextureSwapChain(renderer->color_texture_swap_chain);
 }
 
 static ovrLayerProjection2 renderer_render_frame(struct Game *game,
-                                                 struct renderer *renderer,
+                                                 struct Renderer *renderer,
                                                  ovrTracking2 *tracking) {
   ovrLayerProjection2 layer = vrapi_DefaultLayerProjection2();
   layer.Header.Flags |= VRAPI_FRAME_LAYER_FLAG_CHROMATIC_ABERRATION_CORRECTION;
@@ -387,7 +355,7 @@ static ovrLayerProjection2 renderer_render_frame(struct Game *game,
   struct InputMatrices matrices = {0};
   matrices.enable_stereo = true;
 
-  for (int i = 0; i < VRAPI_FRAME_LAYER_EYE_MAX; ++i) {
+  for (int32_t i = 0; i < VRAPI_FRAME_LAYER_EYE_MAX; ++i) {
     ovrMatrix4f view_matrix =
         ovrMatrix4f_Transpose(&tracking->Eye[i].ViewMatrix);
     ovrMatrix4f projection_matrix =
@@ -396,28 +364,11 @@ static ovrLayerProjection2 renderer_render_frame(struct Game *game,
     glm_mat4_copy(projection_matrix.M, matrices.projection_matrices[i]);
     glm_mat4_copy(view_matrix.M, matrices.view_matrices[i]);
 
-    struct framebuffer *framebuffer = &renderer->framebuffers[i];
-    layer.Textures[i].ColorSwapChain = framebuffer->color_texture_swap_chain;
-    layer.Textures[i].SwapChainIndex = framebuffer->swap_chain_index;
+    layer.Textures[i].ColorSwapChain = renderer->color_texture_swap_chain;
+    layer.Textures[i].SwapChainIndex = renderer->swap_chain_index;
     layer.Textures[i].TexCoordsFromTanAngles =
         ovrMatrix4f_TanAngleMatrixFromProjection(
             &tracking->Eye[i].ProjectionMatrix);
-
-    /* glBindFramebuffer(GL_DRAW_FRAMEBUFFER, */
-    /*                   framebuffer->framebuffers[framebuffer->swap_chain_index]);
-     */
-    matrices.framebuffers[i] =
-        framebuffer->framebuffers[framebuffer->swap_chain_index];
-
-    matrices.framebuffer_width[i] = framebuffer->width;
-    matrices.framebuffer_height[i] = framebuffer->height;
-
-    /* glEnable(GL_CULL_FACE); */
-    /* glEnable(GL_DEPTH_TEST); */
-    /* glEnable(GL_SCISSOR_TEST); */
-    /* glViewport(0, 0, framebuffer->width, framebuffer->height); */
-    /* glScissor(0, 0, framebuffer->width, framebuffer->height); */
-    /* glClearColor(0.0, 0.0, 0.0, 0.0); */
 
     // TODO: what is this here for?
     /* glClearColor(0.0, 0.0, 0.0, 1.0); */
@@ -429,30 +380,31 @@ static ovrLayerProjection2 renderer_render_frame(struct Game *game,
     /* glClear(GL_COLOR_BUFFER_BIT); */
     /* glScissor(0, framebuffer->height - 1, framebuffer->width, 1); */
     /* glClear(GL_COLOR_BUFFER_BIT); */
-
-    // TODO bring back invalidation after introducing multiview
-    /* static const GLenum ATTACHMENTS[] = {GL_DEPTH_ATTACHMENT}; */
-    /* static const GLsizei NUM_ATTACHMENTS = */
-    /*     sizeof(ATTACHMENTS) / sizeof(ATTACHMENTS[0]); */
-    /* glInvalidateFramebuffer(GL_DRAW_FRAMEBUFFER, NUM_ATTACHMENTS,
-     * ATTACHMENTS); */
-    /* glFlush(); */
-    /* glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0); */
-
-    framebuffer->swap_chain_index =
-        (framebuffer->swap_chain_index + 1) % framebuffer->swap_chain_length;
   }
 
+  matrices.framebuffer = renderer->framebuffers[renderer->swap_chain_index];
+
+  matrices.framebuffer_width = renderer->width;
+  matrices.framebuffer_height = renderer->height;
+
   render_game(game, &matrices);
+  static const GLenum ATTACHMENTS[] = {GL_DEPTH_ATTACHMENT};
+  static const GLsizei NUM_ATTACHMENTS =
+      sizeof(ATTACHMENTS) / sizeof(ATTACHMENTS[0]);
+  glInvalidateFramebuffer(GL_DRAW_FRAMEBUFFER, NUM_ATTACHMENTS, ATTACHMENTS);
   glFlush();
+  glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+
+  renderer->swap_chain_index =
+      (renderer->swap_chain_index + 1) % renderer->swap_chain_length;
 
   return layer;
 }
 
-struct app {
+struct App {
   ovrJava *java;
-  struct egl egl;
-  struct renderer renderer;
+  struct Egl egl;
+  struct Renderer renderer;
   bool resumed;
   ANativeWindow *window;
   ovrMobile *ovr;
@@ -464,7 +416,7 @@ static const int CPU_LEVEL = 2;
 static const int GPU_LEVEL = 3;
 
 static void app_on_cmd(struct android_app *android_app, int32_t cmd) {
-  struct app *app = (struct app *)android_app->userData;
+  struct App *app = (struct App *)android_app->userData;
   switch (cmd) {
   case APP_CMD_START:
     info("onStart()");
@@ -497,7 +449,7 @@ static void app_on_cmd(struct android_app *android_app, int32_t cmd) {
   }
 }
 
-static void app_update_vr_mode(struct app *app) {
+static void app_update_vr_mode(struct App *app) {
   if (app->resumed && app->window != NULL) {
     if (app->ovr == NULL) {
       ovrModeParms mode_parms = vrapi_DefaultModeParms(app->java);
@@ -525,10 +477,9 @@ static void app_update_vr_mode(struct app *app) {
   }
 }
 
-static void app_handle_input(struct app *app,
+static void app_handle_input(struct App *app,
                              struct ControllerState *left_controller,
                              struct ControllerState *right_controller) {
-  /* info("app_handle_input"); */
   bool back_button_down_current_frame = false;
 
   int i = 0;
@@ -588,7 +539,7 @@ static void app_handle_input(struct app *app,
   app->back_button_down_previous_frame = back_button_down_current_frame;
 }
 
-static void app_create(struct app *app, ovrJava *java) {
+static void app_create(struct App *app, ovrJava *java) {
   app->java = java;
   egl_create(&app->egl);
 
@@ -604,8 +555,6 @@ static void app_create(struct app *app, ovrJava *java) {
   app->back_button_down_previous_frame = false;
   app->frame_index = 0;
 }
-
-static PFNGLDEBUGMESSAGECALLBACKKHRPROC glDebugMessageCallbackKHR;
 
 static void debug_message_callback(GLenum source, GLenum type, GLuint id,
                                    GLenum severity, GLsizei length,
@@ -624,9 +573,19 @@ static void load_gl_extension_functions() {
   glDebugMessageCallbackKHR =
       (PFNGLDEBUGMESSAGECALLBACKKHRPROC)eglGetProcAddress(
           "glDebugMessageCallbackKHR");
+
+  glFramebufferTextureMultisampleMultiviewOVR =
+      (PFNGLFRAMEBUFFERTEXTUREMULTISAMPLEMULTIVIEWOVRPROC)eglGetProcAddress(
+          "glFramebufferTextureMultisampleMultiviewOVR");
+
+  if (glFramebufferTextureMultisampleMultiviewOVR == NULL) {
+    error("ERROR loading glFramebufferTextureMultisampleMultiviewOVR function "
+          "pointer");
+    assert(glFramebufferTextureMultisampleMultiviewOVR != NULL);
+  }
 }
 
-static void app_destroy(struct app *app) {
+static void app_destroy(struct App *app) {
   egl_destroy(&app->egl);
   renderer_destroy(&app->renderer);
 }
@@ -649,10 +608,10 @@ void android_main(struct android_app *android_app) {
     exit(EXIT_FAILURE);
   }
 
-  struct app app;
-  app_create(&app, &java);
-
   load_gl_extension_functions();
+
+  struct App app;
+  app_create(&app, &java);
 
 #ifdef WESSING_DEBUG
   assert(glDebugMessageCallbackKHR != NULL);

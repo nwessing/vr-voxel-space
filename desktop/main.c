@@ -165,12 +165,12 @@ int main(void) {
 
     struct InputMatrices input_matrices = {0};
     input_matrices.enable_stereo = false;
-    input_matrices.framebuffers[0] = 0;
+    input_matrices.framebuffer = 0;
 
     int32_t window_width, window_height;
     SDL_GetWindowSize(window, &window_width, &window_height);
-    input_matrices.framebuffer_width[0] = window_width;
-    input_matrices.framebuffer_height[0] = window_height;
+    input_matrices.framebuffer_width = window_width;
+    input_matrices.framebuffer_height = window_height;
 
     glm_perspective(glm_rad(90), window_width / (float)window_height, 0.01f,
                     5000.0f, input_matrices.projection_matrices[0]);

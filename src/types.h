@@ -61,9 +61,9 @@ struct InputMatrices {
   bool enable_stereo;
   mat4 projection_matrices[2];
   mat4 view_matrices[2];
-  GLuint framebuffers[2];
-  int32_t framebuffer_width[2];
-  int32_t framebuffer_height[2];
+  GLuint framebuffer;
+  int32_t framebuffer_width;
+  int32_t framebuffer_height;
 };
 
 struct RenderingMatrices {

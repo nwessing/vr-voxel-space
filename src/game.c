@@ -259,7 +259,7 @@ static void generate_draw_commands(struct Game *game,
 }
 
 static void render_real_3d(struct Game *game,
-                           struct RenderingMatrices *matrices, int32_t eye) {
+                           struct RenderingMatrices *matrices) {
   glEnable(GL_DEPTH_TEST);
   glEnable(GL_CULL_FACE);
 
@@ -271,12 +271,15 @@ static void render_real_3d(struct Game *game,
   }
 #endif
 
+  int32_t eye_count = matrices->enable_stereo ? 2 : 1;
+
   vec4 *sky_color = &game->camera.sky_color;
   glClearColor((*sky_color)[0], (*sky_color)[1], (*sky_color)[2],
                (*sky_color)[3]);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-  mat4 birdseye_projection_view = GLM_MAT4_IDENTITY_INIT;
+  mat4 birdseye_projection_view[2] = {GLM_MAT4_IDENTITY_INIT,
+                                      GLM_MAT4_IDENTITY_INIT};
   if (game->options.visualize_frustum) {
     float middle = (1.0f / 2.0f) * BASE_MAP_SIZE;
     vec3 frustum_vis_eye = {middle, 4000.0f, middle};
@@ -287,8 +290,10 @@ static void render_real_3d(struct Game *game,
     glm_lookat(frustum_vis_eye, frustum_vis_center, frustum_vis_up,
                birdseye_view_matrix);
 
-    glm_mat4_mul(matrices->projection_matrices[eye], birdseye_view_matrix,
-                 birdseye_projection_view);
+    for (int32_t eye = 0; eye < eye_count; ++eye) {
+      glm_mat4_mul(matrices->projection_matrices[eye], birdseye_view_matrix,
+                   birdseye_projection_view[eye]);
+    }
   }
 
   struct OpenGLData *gl = &game->gl;
@@ -299,7 +304,7 @@ static void render_real_3d(struct Game *game,
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, map->color_map_tex_id);
 
-  mat4 *projection_view = &matrices->projection_view_matrices[eye];
+  /* mat4 *projection_view = &matrices->projection_view_matrices[eye]; */
 
   glUniform2i(glGetUniformLocation(gl->poly_shader_program, "heightMapSize"),
               BASE_MAP_SIZE, BASE_MAP_SIZE);
@@ -377,15 +382,24 @@ static void render_real_3d(struct Game *game,
       }
     }
 
-    mat4 mvp = GLM_MAT4_IDENTITY_INIT;
-    if (game->options.visualize_frustum) {
-      glm_mat4_mul(birdseye_projection_view, command->model_matrix, mvp);
-    } else {
-      glm_mat4_mul(*projection_view, command->model_matrix, mvp);
+    mat4 mvp[2] = {GLM_MAT4_IDENTITY_INIT, GLM_MAT4_IDENTITY_INIT};
+    for (int32_t eye = 0; eye < eye_count; ++eye) {
+      if (game->options.visualize_frustum) {
+        glm_mat4_mul(birdseye_projection_view[eye], command->model_matrix,
+                     mvp[eye]);
+      } else {
+        glm_mat4_mul(matrices->projection_view_matrices[eye],
+                     command->model_matrix, mvp[eye]);
+      }
     }
 
-    glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "mvp"), 1,
-                       GL_FALSE, (float *)mvp);
+    glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "mvp[0]"),
+                       1, GL_FALSE, (float *)mvp[0]);
+    if (matrices->enable_stereo) {
+      glUniformMatrix4fv(
+          glGetUniformLocation(gl->poly_shader_program, "mvp[1]"), 1, GL_FALSE,
+          (float *)mvp[1]);
+    }
     glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "model"),
                        1, GL_FALSE, (float *)command->model_matrix);
 
@@ -402,13 +416,13 @@ static void render_real_3d(struct Game *game,
   glBindVertexArray(0);
 
   if (game->options.visualize_frustum) {
-    vec4 frustum_verts[8];
     mat4 inv_projection_view;
-    glm_mat4_inv(*projection_view, inv_projection_view);
-    glm_frustum_corners(inv_projection_view, frustum_verts);
 
     // NOTE indices for each specific corner are not part of the API
     vec3 verts[6];
+    glm_mat4_inv(matrices->projection_view_matrices[0], inv_projection_view);
+    vec4 frustum_verts[8];
+    glm_frustum_corners(inv_projection_view, frustum_verts);
     // top left near
     glm_vec3(frustum_verts[1], verts[0]);
     // top right far
@@ -422,6 +436,16 @@ static void render_real_3d(struct Game *game,
     // top left near
     glm_vec3(frustum_verts[1], verts[5]);
 
+    if (matrices->enable_stereo) {
+      glm_mat4_inv(matrices->projection_view_matrices[1], inv_projection_view);
+      // top right far
+      glm_vec3(frustum_verts[6], verts[1]);
+      // top right near
+      glm_vec3(frustum_verts[2], verts[3]);
+      // top right far
+      glm_vec3(frustum_verts[6], verts[4]);
+    }
+
     glBindVertexArray(game->gl.frustum_vis_vao);
     glBindBuffer(GL_ARRAY_BUFFER, game->gl.frustum_vis_vbo);
     glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_DYNAMIC_DRAW);
@@ -432,8 +456,13 @@ static void render_real_3d(struct Game *game,
     glUniform4fv(glGetUniformLocation(gl->poly_shader_program, "blendColor"), 1,
                  blend_color);
 
-    glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "mvp"), 1,
-                       GL_FALSE, (float *)birdseye_projection_view);
+    glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "mvp[0]"),
+                       1, GL_FALSE, (float *)birdseye_projection_view[0]);
+    if (matrices->enable_stereo) {
+      glUniformMatrix4fv(
+          glGetUniformLocation(gl->poly_shader_program, "mvp[1]"), 1, GL_FALSE,
+          (float *)birdseye_projection_view[1]);
+    }
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, game->gl.white_tex_id);
 
@@ -478,13 +507,9 @@ void render_game(struct Game *game, struct InputMatrices *matrices) {
 
   generate_draw_commands(game, &rendering_matrices);
 
-  int32_t view_count = rendering_matrices.enable_stereo ? 2 : 1;
-  for (int32_t i = 0; i < view_count; ++i) {
-    glViewport(0, 0, matrices->framebuffer_width[i],
-               matrices->framebuffer_height[i]);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, matrices->framebuffers[i]);
-    render_real_3d(game, &rendering_matrices, i);
-  }
+  glViewport(0, 0, matrices->framebuffer_width, matrices->framebuffer_height);
+  glBindFramebuffer(GL_DRAW_FRAMEBUFFER, matrices->framebuffer);
+  render_real_3d(game, &rendering_matrices);
 #if 0
   if (game->options.do_raycasting) {
     memset(game->frame.pixels, 0, game->frame.height * game->frame.pitch);
