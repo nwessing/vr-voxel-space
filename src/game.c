@@ -300,8 +300,6 @@ static void render_real_3d(struct Game *game,
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, map->color_map_tex_id);
 
-  /* mat4 *projection_view = &matrices->projection_view_matrices[eye]; */
-
   glUniform2i(glGetUniformLocation(gl->poly_shader_program, "heightMapSize"),
               BASE_MAP_SIZE, BASE_MAP_SIZE);
   glUniform4fv(glGetUniformLocation(gl->poly_shader_program, "fogColor"), 1,
@@ -554,8 +552,6 @@ static inline bool is_key_just_pressed(struct Game *game, int32_t key) {
   return is_key_pressed(&game->keyboard, key) &&
          !is_key_pressed(&game->prev_keyboard, key);
 }
-
-/* static inline bool is_button_just_pressed(struct Game *game */
 
 static inline float read_axis(float joystick_axis, bool negative_key_pressed,
                               bool positive_key_pressed) {
