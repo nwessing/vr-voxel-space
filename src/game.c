@@ -13,6 +13,7 @@
 #include "string.h"
 #include "types.h"
 #include "util.h"
+#include <stdlib.h>
 
 static vec3 CAMERA_TO_TERRAIN = {BASE_MAP_SIZE, BASE_MAP_SIZE, BASE_MAP_SIZE};
 
@@ -32,6 +33,59 @@ static struct MapEntry maps[MAP_COUNT] = {
     {"maps/C24W.png", "maps/D24.png"}, {"maps/C25W.png", "maps/D25.png"},
     {"maps/C26W.png", "maps/D18.png"}, {"maps/C27W.png", "maps/D15.png"},
     {"maps/C28W.png", "maps/D25.png"}, {"maps/C29W.png", "maps/D16.png"}};
+
+void update_world_section_distances(struct Map *map,
+                                    struct RenderState *render_state,
+                                    vec3 camera_position) {
+  for (int32_t i = 0; i < render_state->num_sections; ++i) {
+    struct WorldSection *section = &render_state->sections_by_distance[i];
+    vec3 section_center = {0, 0, 0};
+    section_center[0] += section->map_x * (float)BASE_MAP_SIZE;
+    section_center[2] += section->map_y * (float)BASE_MAP_SIZE;
+
+    glm_vec3_add(section_center, map->sections[section->section_index].center,
+                 section_center);
+    section->camera_distance =
+        glm_vec3_distance(camera_position, section_center);
+  }
+}
+
+void sort_world_sections(struct WorldSection sections[], uint32_t length) {
+  if (length < 2) {
+    return;
+  }
+
+  // TODO why does "length / 2" not work for a pivot?
+  // Choosing a pivot in the middle should work well since the the
+  // camera_position has likely not changed much since the last frame
+  uint32_t pivot = 1;
+
+  uint32_t i = 0;
+  uint32_t j = length - 1;
+
+  while (i < j) {
+    while (sections[i].camera_distance <= sections[pivot].camera_distance &&
+           i < length) {
+      ++i;
+    }
+
+    while (sections[j].camera_distance > sections[pivot].camera_distance) {
+      --j;
+    }
+
+    if (i < j) {
+      struct WorldSection temp = sections[i];
+      sections[i] = sections[j];
+      sections[j] = temp;
+    }
+  }
+
+  struct WorldSection temp = sections[pivot];
+  sections[pivot] = sections[j];
+  sections[j] = temp;
+  sort_world_sections(sections, j);
+  sort_world_sections(&sections[j], length - j);
+}
 
 static void hmd_position_to_world_position(struct Game *game, vec3 hmd_position,
                                            vec3 out) {
@@ -113,9 +167,8 @@ static void compute_matrices(struct Game *game, struct InputMatrices *matrices,
 }
 
 static void generate_draw_commands_for_map(struct Game *game, struct Map *map,
-                                           vec4 frustum_planes[6],
-                                           int32_t *cost, int32_t x, int32_t z,
-                                           int32_t i_section) {
+                                           vec4 frustum_planes[6], int32_t x,
+                                           int32_t z, int32_t i_section) {
   struct Camera *camera = &game->camera;
   vec3 translate = {x * (BASE_MAP_SIZE - map->modifier), 0.0f,
                     z * (BASE_MAP_SIZE - map->modifier)};
@@ -125,7 +178,7 @@ static void generate_draw_commands_for_map(struct Game *game, struct Map *map,
   glm_scale(model, map_scaler);
   glm_translate(model, translate);
 
-  if (game->render_commands.num_commands == game->render_commands.capacity) {
+  if (game->render_state.num_commands == game->render_state.capacity) {
     return;
   }
 
@@ -152,19 +205,16 @@ static void generate_draw_commands_for_map(struct Game *game, struct Map *map,
   int32_t lod_index = 0;
   if (distance <= 256.0f) {
     lod_index = 0;
-    *cost += 16;
   } else if (distance < 512.0) {
     lod_index = 1;
-    *cost += 4;
   } else {
     lod_index = 2;
-    *cost += 1;
   }
 
   struct Mesh *mesh = &section->lods[lod_index];
   struct DrawCommand *draw_command =
-      &game->render_commands.commands[game->render_commands.num_commands];
-  ++game->render_commands.num_commands;
+      &game->render_state.commands[game->render_state.num_commands];
+  ++game->render_state.num_commands;
   draw_command->mesh = *mesh;
   draw_command->lod = lod_index;
   glm_mat4_copy(model, draw_command->model_matrix);
@@ -197,60 +247,23 @@ static void generate_draw_commands(struct Game *game,
     glm_frustum_planes(matrices->projection_view_matrices[0], frustum_planes);
   }
 
-  game->render_commands.num_commands = 0;
+  vec3 camera_position;
+  glm_vec3_mul(game->camera.position, CAMERA_TO_TERRAIN, camera_position);
 
-  int32_t budget = 150;
-  int32_t cost = 0;
-  int32_t map_count = 0;
-  int32_t area_size = 1;
-  int32_t x = 0, z = 0;
-  int32_t initial_row = 0, initial_column = 0;
-  int32_t iteration = 0, iteration_max = 10000;
-  while (game->render_commands.num_commands < game->render_commands.capacity) {
-    /* info("area_size = %d, x = %d, z = %d, cost = %d, commands = %d\n", */
-    /*      area_size, x, z, cost, game->render_commands.num_commands); */
+  update_world_section_distances(&game->maps[game->map_index],
+                                 &game->render_state, camera_position);
+  sort_world_sections(game->render_state.sections_by_distance,
+                      game->render_state.num_sections);
 
-    int32_t map_x =
-        (x >= 0 ? x : -abs(x - (MAP_X_SEGMENTS - 1))) / MAP_X_SEGMENTS;
-    int32_t map_z =
-        (z >= 0 ? z : -abs(z - (MAP_Y_SEGMENTS - 1))) / MAP_Y_SEGMENTS;
-    int32_t section_x = x > 0 ? x : (x + (-map_x * MAP_X_SEGMENTS));
-    int32_t section_z = z > 0 ? z : (z + (-map_z * MAP_Y_SEGMENTS));
-    int32_t map_section = (section_x % MAP_X_SEGMENTS) +
-                          ((section_z % MAP_Y_SEGMENTS) * MAP_X_SEGMENTS);
-
-    /* info("x = %d, z = %d, map_x = %d, map_z = %d, section = %d\n", x, z,
-     * map_x, */
-    /*      map_z, map_section); */
-    assert(map_section >= 0 && map_section < MAP_SECTION_COUNT);
-    generate_draw_commands_for_map(game, map, frustum_planes, &cost, map_x,
-                                   map_z, map_section);
-    ++map_count;
-    if (map_count == area_size * area_size) {
-      if (cost >= budget) {
-        break;
-      }
-      area_size += 2;
-      x = -(area_size / 2);
-      z = -(area_size / 2);
-      initial_row = x;
-      initial_column = z;
-    } else {
-      if (z == initial_column && x != initial_row + area_size - 1) {
-        ++x;
-      } else if (x == initial_row + area_size - 1 &&
-                 z != initial_column + area_size - 1) {
-        ++z;
-      } else if (z == initial_column + area_size - 1 && x != initial_row) {
-        --x;
-      } else if (x == initial_row) {
-        --z;
-      }
-    }
-    ++iteration;
-    if (iteration >= iteration_max) {
-      break;
-    }
+  // Through manual inspection, 70 sections appears to be the lower bound of
+  // what we can draw at the current fog level to hide all pop-in
+  game->render_state.num_commands = 0;
+  for (int32_t i = 0; i < game->render_state.num_sections &&
+                      game->render_state.num_commands < 70;
+       ++i) {
+    struct WorldSection *section = &game->render_state.sections_by_distance[i];
+    generate_draw_commands_for_map(game, map, frustum_planes, section->map_x,
+                                   section->map_y, section->section_index);
   }
 }
 
@@ -322,7 +335,7 @@ static void render_real_3d(struct Game *game,
   glGetBufferParameteriv(GL_DRAW_INDIRECT_BUFFER, GL_BUFFER_SIZE,
                          &draw_indirect_buffer_size);
   int32_t required_buffer_size =
-      game->render_commands.num_commands *
+      game->render_state.num_commands *
       (int32_t)sizeof(struct DrawElementsIndirectCommand);
 
   if (draw_indirect_buffer_size < required_buffer_size) {
@@ -343,9 +356,9 @@ static void render_real_3d(struct Game *game,
   }
 
   // Populate indirect draw commands
-  for (int32_t i_command = 0; i_command < game->render_commands.num_commands;
+  for (int32_t i_command = 0; i_command < game->render_state.num_commands;
        ++i_command) {
-    struct DrawCommand *command = &game->render_commands.commands[i_command];
+    struct DrawCommand *command = &game->render_state.commands[i_command];
 
     struct DrawElementsIndirectCommand *gl_command = &gl_commands[i_command];
     gl_command->count = command->mesh.num_indices;
@@ -356,9 +369,9 @@ static void render_real_3d(struct Game *game,
   }
   assert(glUnmapBuffer(GL_DRAW_INDIRECT_BUFFER) == GL_TRUE);
 
-  for (int32_t i_command = 0; i_command < game->render_commands.num_commands;
+  for (int32_t i_command = 0; i_command < game->render_state.num_commands;
        ++i_command) {
-    struct DrawCommand *command = &game->render_commands.commands[i_command];
+    struct DrawCommand *command = &game->render_state.commands[i_command];
     vec4 blend_color = {1.0, 1.0, 1.0, 1.0};
     if (game->options.visualize_lod) {
       switch (command->lod) {
@@ -1267,8 +1280,30 @@ int32_t game_init(struct Game *game, int32_t width, int32_t height) {
   game->options.visualize_lod = false;
   game->options.visualize_frustum = false;
   game->options.show_wireframe = false;
-  game->render_commands.capacity = sizeof(game->render_commands.commands) /
-                                   sizeof(game->render_commands.commands[0]);
+  game->render_state.capacity = sizeof(game->render_state.commands) /
+                                sizeof(game->render_state.commands[0]);
+
+  int32_t map_min = -3, map_max = 3;
+  assert(
+      (map_max - map_min) * 2 * MAP_SECTION_COUNT <=
+          (int32_t)(sizeof(game->render_state.sections_by_distance) /
+                    sizeof(game->render_state.sections_by_distance[0])) &&
+      "The capacity of RenderState's sections_by_distance is not high enough");
+  int32_t *i_section = &game->render_state.num_sections;
+  for (int32_t map_x = map_min; map_x <= map_max; ++map_x) {
+    for (int32_t map_y = map_min; map_y <= map_max; ++map_y) {
+      for (int32_t section = 0; section < MAP_SECTION_COUNT; ++section) {
+        struct WorldSection *world_section =
+            &game->render_state.sections_by_distance[*i_section];
+        world_section->map_x = map_x;
+        world_section->map_y = map_y;
+        world_section->section_index = section;
+        world_section->camera_distance = 0.0f;
+        ++(*i_section);
+      }
+    }
+  }
+
   for (int i = 0; i < 2; ++i) {
     game->trigger_set[i] = true;
   }

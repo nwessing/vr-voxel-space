@@ -160,6 +160,7 @@ struct MapSection {
 #define MAP_X_SEGMENTS 4
 #define MAP_Y_SEGMENTS MAP_X_SEGMENTS
 #define MAP_SECTION_COUNT (MAP_X_SEGMENTS * MAP_Y_SEGMENTS)
+
 struct Map {
   struct ImageBuffer color_map;
   struct ImageBuffer height_map;
@@ -172,10 +173,19 @@ struct Map {
   struct MapSection sections[MAP_SECTION_COUNT];
 };
 
-struct RenderCommands {
+struct WorldSection {
+  uint32_t section_index;
+  int32_t map_x;
+  int32_t map_y;
+  float camera_distance;
+};
+
+struct RenderState {
   struct DrawCommand commands[1024];
   int32_t num_commands;
   int32_t capacity;
+  struct WorldSection sections_by_distance[1024];
+  int32_t num_sections;
 };
 
 #define LEFT_CONTROLLER_INDEX 0
@@ -193,5 +203,5 @@ struct Game {
   struct ControllerState prev_controller[2];
   struct ControllerState controller[2];
   bool trigger_set[2];
-  struct RenderCommands render_commands;
+  struct RenderState render_state;
 };
