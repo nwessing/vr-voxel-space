@@ -50,41 +50,36 @@ void update_world_section_distances(struct Map *map,
   }
 }
 
-void sort_world_sections(struct WorldSection sections[], uint32_t length) {
-  if (length < 2) {
+void sort_world_sections(struct WorldSection sections[], int32_t first,
+                         int32_t last) {
+  if (first < 0 || last < 0 || last <= first) {
     return;
   }
 
-  // TODO why does "length / 2" not work for a pivot?
-  // Choosing a pivot in the middle should work well since the the
-  // camera_position has likely not changed much since the last frame
-  uint32_t pivot = 1;
+  float pivot = sections[(first + last) / 2].camera_distance;
 
-  uint32_t i = 0;
-  uint32_t j = length - 1;
+  int32_t i = first - 1;
+  int32_t j = last + 1;
 
-  while (i < j) {
-    while (sections[i].camera_distance <= sections[pivot].camera_distance &&
-           i < length) {
+  while (true) {
+    do {
       ++i;
-    }
+    } while (sections[i].camera_distance < pivot);
 
-    while (sections[j].camera_distance > sections[pivot].camera_distance) {
+    do {
       --j;
+    } while (sections[j].camera_distance > pivot);
+
+    if (i >= j) {
+      sort_world_sections(sections, first, j);
+      sort_world_sections(sections, j + 1, last);
+      return;
     }
 
-    if (i < j) {
-      struct WorldSection temp = sections[i];
-      sections[i] = sections[j];
-      sections[j] = temp;
-    }
+    struct WorldSection temp = sections[i];
+    sections[i] = sections[j];
+    sections[j] = temp;
   }
-
-  struct WorldSection temp = sections[pivot];
-  sections[pivot] = sections[j];
-  sections[j] = temp;
-  sort_world_sections(sections, j);
-  sort_world_sections(&sections[j], length - j);
 }
 
 static void hmd_position_to_world_position(struct Game *game, vec3 hmd_position,
@@ -252,8 +247,8 @@ static void generate_draw_commands(struct Game *game,
 
   update_world_section_distances(&game->maps[game->map_index],
                                  &game->render_state, camera_position);
-  sort_world_sections(game->render_state.sections_by_distance,
-                      game->render_state.num_sections);
+  sort_world_sections(game->render_state.sections_by_distance, 0,
+                      game->render_state.num_sections - 1);
 
   // Through manual inspection, 70 sections appears to be the lower bound of
   // what we can draw at the current fog level to hide all pop-in
