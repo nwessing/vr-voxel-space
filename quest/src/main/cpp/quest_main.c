@@ -477,7 +477,7 @@ static void app_update_vr_mode(struct App *app) {
   }
 }
 
-static void app_handle_input(struct App *app,
+static void app_handle_input(struct App *app, double display_time,
                              struct ControllerState *left_controller,
                              struct ControllerState *right_controller) {
   bool back_button_down_current_frame = false;
@@ -515,6 +515,24 @@ static void app_handle_input(struct App *app,
         controller->joy_stick.y = input_state.Joystick.y;
         controller->trigger = input_state.IndexTrigger;
         controller->grip = input_state.GripTrigger;
+
+        ovrTracking hand_tracking;
+        if (vrapi_GetInputTrackingState(app->ovr, capability.DeviceID,
+                                        display_time,
+                                        &hand_tracking) == ovrSuccess) {
+          controller->is_connected = true;
+
+          ovrPosef *input_pose = &hand_tracking.HeadPose.Pose;
+          controller->pose.position[0] = input_pose->Position.x;
+          controller->pose.position[1] = input_pose->Position.y;
+          controller->pose.position[2] = input_pose->Position.z;
+          controller->pose.orientation[0] = input_pose->Orientation.x;
+          controller->pose.orientation[1] = input_pose->Orientation.y;
+          controller->pose.orientation[2] = input_pose->Orientation.z;
+          controller->pose.orientation[3] = input_pose->Orientation.w;
+        } else {
+          controller->is_connected = false;
+        }
 
         if (is_right) {
           controller->primary_button = (input_state.Buttons & ovrButton_A) > 0;
@@ -651,8 +669,6 @@ void android_main(struct android_app *android_app) {
       app_update_vr_mode(&app);
     }
 
-    app_handle_input(&app, &left_controller, &right_controller);
-
     if (app.ovr == NULL) {
       continue;
     }
@@ -665,21 +681,27 @@ void android_main(struct android_app *android_app) {
     if (delta < 0) {
       delta = 0;
     }
+
+    app_handle_input(&app, display_time, &left_controller, &right_controller);
+
     ovrTracking2 tracking = vrapi_GetPredictedTracking2(app.ovr, display_time);
-
-    ovrQuatf d_quat = tracking.HeadPose.Pose.Orientation;
-
-    glm_quat_init(game->camera.quat, d_quat.x, d_quat.y, d_quat.z, d_quat.w);
 
     // Don't update on first render
     if (last_predicted_display_time > 0) {
-      vec3 hmd_position = {
-          tracking.HeadPose.Pose.Position.x,
-          tracking.HeadPose.Pose.Position.y,
-          tracking.HeadPose.Pose.Position.z,
-      };
+      struct Pose hmd_pose = {.position =
+                                  {
+                                      tracking.HeadPose.Pose.Position.x,
+                                      tracking.HeadPose.Pose.Position.y,
+                                      tracking.HeadPose.Pose.Position.z,
+                                  },
+                              .orientation = {
+                                  tracking.HeadPose.Pose.Orientation.x,
+                                  tracking.HeadPose.Pose.Orientation.y,
+                                  tracking.HeadPose.Pose.Orientation.z,
+                                  tracking.HeadPose.Pose.Orientation.w,
+                              }};
       update_game(game, &keyboard_state, &left_controller, &right_controller,
-                  hmd_position, delta);
+                  hmd_pose, delta);
     }
 
     const ovrLayerProjection2 layer =

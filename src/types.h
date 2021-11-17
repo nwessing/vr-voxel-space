@@ -81,14 +81,42 @@ struct DrawElementsIndirectCommand {
   uint32_t reserved_must_be_zero;
 };
 
+struct TerrainShaderUniforms {
+  GLint height_map_size;
+  GLint fog_color;
+  GLint terrain_scale;
+  GLint flags;
+  GLint camera_position;
+  GLint projection_views[2];
+  GLint model;
+  GLint blend_color;
+};
+
+struct HandShaderUniforms {
+  GLint color_map;
+  GLint mvp[2];
+};
+
+struct CubeBuffer {
+  GLuint vao;
+  GLuint vertex_vbo;
+  GLuint index_vbo;
+  GLsizei index_count;
+  void *index_offset;
+};
+
 struct OpenGLData {
   GLuint frame_buffer;
-  GLuint poly_shader_program;
+  GLuint terrain_shader;
+  struct TerrainShaderUniforms terrain_shader_uniforms;
+  GLuint hand_shader;
+  struct HandShaderUniforms hand_shader_uniforms;
   GLuint shader_program;
   GLuint vbo;
   GLuint vao;
   GLuint tex_id;
   uint32_t vao_num_vertices;
+  struct CubeBuffer cube_buffer;
   GLuint frustum_vis_vao;
   GLuint frustum_vis_vbo;
   GLuint white_tex_id;
@@ -120,8 +148,13 @@ struct Vec2 {
   float x;
   float y;
 };
+struct Pose {
+  vec3 position;
+  versor orientation;
+};
 
 struct ControllerState {
+  struct Pose pose;
   struct Vec2 joy_stick;
 
   // 0.0 to 1.0
@@ -132,6 +165,7 @@ struct ControllerState {
   bool primary_button;
   bool secondary_button;
   bool scale_rotation_by_time;
+  bool is_connected;
 };
 
 struct MapEntry {

@@ -84,11 +84,14 @@ void sort_world_sections(struct WorldSection sections[], int32_t first,
 
 static void hmd_position_to_world_position(struct Game *game, vec3 hmd_position,
                                            vec3 out) {
+  // Allow hmd_position and out to be the same
+  vec3 copy_hmd_position;
+  glm_vec3_copy(hmd_position, copy_hmd_position);
 
   float scale_factor = 1.0f / game->camera.terrain_scale;
   vec3 scaler = {scale_factor, scale_factor, scale_factor};
   glm_vec3_div(scaler, CAMERA_TO_TERRAIN, out);
-  glm_vec3_mul(out, hmd_position, out);
+  glm_vec3_mul(out, copy_hmd_position, out);
 }
 
 // Find the direction vector indicating where the camera is pointing
@@ -262,6 +265,50 @@ static void generate_draw_commands(struct Game *game,
   }
 }
 
+static void render_hands(struct Game *game, struct Map *map,
+                         struct RenderingMatrices *matrices) {
+  struct OpenGLData *gl = &game->gl;
+  glBindVertexArray(gl->cube_buffer.vao);
+  glUseProgram(gl->hand_shader);
+
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, map->color_map_tex_id);
+
+  glUniform1i(gl->hand_shader_uniforms.color_map, 0);
+
+  for (uint32_t i = 0; i < 2; ++i) {
+    struct ControllerState *controller = &game->controller[i];
+    if (!controller->is_connected) {
+      continue;
+    }
+
+    vec3 camera_position;
+    glm_vec3_mul(game->camera.position, CAMERA_TO_TERRAIN, camera_position);
+    glm_vec3_scale(camera_position, game->camera.terrain_scale,
+                   camera_position);
+
+    mat4 camera_transform = GLM_MAT4_IDENTITY_INIT;
+    glm_translate(camera_transform, camera_position);
+    glm_rotate(camera_transform, game->camera.pitch, (vec3){0.0, 1.0, 0.0});
+
+    mat4 model = GLM_MAT4_IDENTITY_INIT;
+    glm_translate(model, controller->pose.position);
+    glm_quat_rotate(model, controller->pose.orientation, model);
+    glm_scale(model, (vec3){0.1f, 0.1f, 0.1f});
+    glm_mat4_mul(camera_transform, model, model);
+
+    for (uint32_t i = 0; i < (matrices->enable_stereo ? 2 : 1); ++i) {
+      mat4 mvp;
+      glm_mat4_mul(matrices->projection_view_matrices[i], model, mvp);
+      glUniformMatrix4fv(gl->hand_shader_uniforms.mvp[i], 1, GL_FALSE,
+                         (float *)mvp);
+    }
+
+    glDrawElements(GL_TRIANGLES, gl->cube_buffer.index_count, GL_UNSIGNED_INT,
+                   gl->cube_buffer.index_offset);
+  }
+}
+
 static void render_real_3d(struct Game *game,
                            struct RenderingMatrices *matrices) {
   glEnable(GL_DEPTH_TEST);
@@ -282,6 +329,9 @@ static void render_real_3d(struct Game *game,
                (*sky_color)[3]);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+  struct OpenGLData *gl = &game->gl;
+  struct Map *map = &game->maps[game->map_index];
+
   mat4 birdseye_projection_view[2] = {GLM_MAT4_IDENTITY_INIT,
                                       GLM_MAT4_IDENTITY_INIT};
   if (game->options.visualize_frustum) {
@@ -298,23 +348,21 @@ static void render_real_3d(struct Game *game,
       glm_mat4_mul(matrices->projection_matrices[eye], birdseye_view_matrix,
                    birdseye_projection_view[eye]);
     }
+  } else {
+    render_hands(game, map, matrices);
   }
 
-  struct OpenGLData *gl = &game->gl;
-  struct Map *map = &game->maps[game->map_index];
-  glUseProgram(gl->poly_shader_program);
+  glUseProgram(gl->terrain_shader);
   glBindVertexArray(map->map_vao);
 
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, map->color_map_tex_id);
 
-  glUniform2i(glGetUniformLocation(gl->poly_shader_program, "heightMapSize"),
-              BASE_MAP_SIZE, BASE_MAP_SIZE);
-  glUniform4fv(glGetUniformLocation(gl->poly_shader_program, "fogColor"), 1,
-               *sky_color);
-  glUniform1f(glGetUniformLocation(gl->poly_shader_program, "terrainScale"),
-              game->camera.terrain_scale);
-  glUniform1ui(glGetUniformLocation(gl->poly_shader_program, "flags"),
+  struct TerrainShaderUniforms *uniforms = &game->gl.terrain_shader_uniforms;
+  glUniform2i(uniforms->height_map_size, BASE_MAP_SIZE, BASE_MAP_SIZE);
+  glUniform4fv(uniforms->fog_color, 1, *sky_color);
+  glUniform1f(uniforms->terrain_scale, game->camera.terrain_scale);
+  glUniform1ui(uniforms->flags,
                game->options.visualize_frustum || !game->options.show_fog ? 0
                                                                           : 1);
 
@@ -322,8 +370,7 @@ static void render_real_3d(struct Game *game,
   glm_vec3_mul(game->camera.position, CAMERA_TO_TERRAIN, camera_world_position);
   glm_vec3_scale(camera_world_position, game->camera.terrain_scale,
                  camera_world_position);
-  glUniform3fv(glGetUniformLocation(gl->poly_shader_program, "cameraPosition"),
-               1, camera_world_position);
+  glUniform3fv(uniforms->camera_position, 1, camera_world_position);
 
   glBindBuffer(GL_DRAW_INDIRECT_BUFFER, gl->draw_command_vbo);
   int32_t draw_indirect_buffer_size;
@@ -395,18 +442,16 @@ static void render_real_3d(struct Game *game,
       }
     }
 
-    glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "mvp[0]"),
-                       1, GL_FALSE, (float *)mvp[0]);
+    glUniformMatrix4fv(uniforms->projection_views[0], 1, GL_FALSE,
+                       (float *)mvp[0]);
     if (matrices->enable_stereo) {
-      glUniformMatrix4fv(
-          glGetUniformLocation(gl->poly_shader_program, "mvp[1]"), 1, GL_FALSE,
-          (float *)mvp[1]);
+      glUniformMatrix4fv(uniforms->projection_views[1], 1, GL_FALSE,
+                         (float *)mvp[1]);
     }
-    glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "model"),
-                       1, GL_FALSE, (float *)command->model_matrix);
+    glUniformMatrix4fv(uniforms->model, 1, GL_FALSE,
+                       (float *)command->model_matrix);
 
-    glUniform4fv(glGetUniformLocation(gl->poly_shader_program, "blendColor"), 1,
-                 blend_color);
+    glUniform4fv(uniforms->blend_color, 1, blend_color);
 
     glDrawElementsIndirect(
         GL_TRIANGLES, GL_UNSIGNED_INT,
@@ -452,18 +497,16 @@ static void render_real_3d(struct Game *game,
     glBindBuffer(GL_ARRAY_BUFFER, game->gl.frustum_vis_vbo);
     glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_DYNAMIC_DRAW);
 
-    glUseProgram(game->gl.poly_shader_program);
+    glUseProgram(game->gl.terrain_shader);
 
     vec4 blend_color = {1.0, 1.0, 0.0, 0.5};
-    glUniform4fv(glGetUniformLocation(gl->poly_shader_program, "blendColor"), 1,
-                 blend_color);
+    glUniform4fv(gl->terrain_shader_uniforms.blend_color, 1, blend_color);
 
-    glUniformMatrix4fv(glGetUniformLocation(gl->poly_shader_program, "mvp[0]"),
-                       1, GL_FALSE, (float *)birdseye_projection_view[0]);
+    glUniformMatrix4fv(gl->terrain_shader_uniforms.projection_views[0], 1,
+                       GL_FALSE, (float *)birdseye_projection_view[0]);
     if (matrices->enable_stereo) {
-      glUniformMatrix4fv(
-          glGetUniformLocation(gl->poly_shader_program, "mvp[1]"), 1, GL_FALSE,
-          (float *)birdseye_projection_view[1]);
+      glUniformMatrix4fv(gl->terrain_shader_uniforms.projection_views[1], 1,
+                         GL_FALSE, (float *)birdseye_projection_view[1]);
     }
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, game->gl.white_tex_id);
@@ -599,7 +642,7 @@ static void update_camera(struct Camera *camera) {
 
 void update_game(struct Game *game, struct KeyboardState *keyboard,
                  struct ControllerState *left_controller,
-                 struct ControllerState *right_controller, vec3 hmd_position,
+                 struct ControllerState *right_controller, struct Pose hmd_pose,
                  float elapsed) {
   game->prev_keyboard = game->keyboard;
   game->keyboard = *keyboard;
@@ -612,11 +655,13 @@ void update_game(struct Game *game, struct KeyboardState *keyboard,
   game->controller[RIGHT_CONTROLLER_INDEX] = *right_controller;
 
   {
+    glm_quat_copy(hmd_pose.orientation, game->camera.quat);
     // Update position based on the the current HMD position
 
     // Use the different between current position and last reported position
     vec3 hmd_difference;
-    glm_vec3_sub(hmd_position, game->camera.last_hmd_position, hmd_difference);
+    glm_vec3_sub(hmd_pose.position, game->camera.last_hmd_position,
+                 hmd_difference);
 
     // Scale the hmd position different to world units
     vec3 hmd_world_pos;
@@ -631,7 +676,7 @@ void update_game(struct Game *game, struct KeyboardState *keyboard,
     glm_mat4_mulv3(cam_rotation, hmd_world_pos, 1.0f, hmd_world_pos);
 
     glm_vec3_add(game->camera.position, hmd_world_pos, game->camera.position);
-    glm_vec3_copy(hmd_position, game->camera.last_hmd_position);
+    glm_vec3_copy(hmd_pose.position, game->camera.last_hmd_position);
   }
 
   float forward_movement =
@@ -1092,6 +1137,92 @@ static void create_map_gl_data(struct Map *map) {
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 }
 
+static void create_terrain_shader(struct OpenGLData *gl) {
+
+  char *model_vertex_shader_source = read_file("src/shaders/model_view.vert");
+  assert(model_vertex_shader_source != NULL);
+
+  char *get_color_fragment_shader_source =
+      read_file("src/shaders/get_color.frag");
+  assert(get_color_fragment_shader_source != NULL);
+
+  gl->terrain_shader = create_shader(model_vertex_shader_source,
+                                     get_color_fragment_shader_source);
+
+  free(model_vertex_shader_source);
+  free(get_color_fragment_shader_source);
+  assert(gl->terrain_shader);
+
+  gl->terrain_shader_uniforms.height_map_size =
+      glGetUniformLocation(gl->terrain_shader, "heightMapSize");
+  gl->terrain_shader_uniforms.fog_color =
+      glGetUniformLocation(gl->terrain_shader, "fogColor");
+  gl->terrain_shader_uniforms.terrain_scale =
+      glGetUniformLocation(gl->terrain_shader, "terrainScale");
+  gl->terrain_shader_uniforms.flags =
+      glGetUniformLocation(gl->terrain_shader, "flags");
+  gl->terrain_shader_uniforms.camera_position =
+      glGetUniformLocation(gl->terrain_shader, "cameraPosition");
+  gl->terrain_shader_uniforms.projection_views[0] =
+      glGetUniformLocation(gl->terrain_shader, "projectionViews[0]");
+  gl->terrain_shader_uniforms.projection_views[1] =
+      glGetUniformLocation(gl->terrain_shader, "projectionViews[1]");
+  gl->terrain_shader_uniforms.model =
+      glGetUniformLocation(gl->terrain_shader, "model");
+  gl->terrain_shader_uniforms.blend_color =
+      glGetUniformLocation(gl->terrain_shader, "blendColor");
+}
+
+static void create_hand_shader(struct OpenGLData *gl) {
+  char *vertex_shader_source = read_file("src/shaders/hand.vert");
+  assert(vertex_shader_source != NULL);
+
+  char *fragment_shader_source = read_file("src/shaders/hand.frag");
+  assert(fragment_shader_source != NULL);
+
+  gl->hand_shader = create_shader(vertex_shader_source, fragment_shader_source);
+
+  free(vertex_shader_source);
+  free(fragment_shader_source);
+  assert(gl->hand_shader);
+
+  gl->hand_shader_uniforms.color_map =
+      glGetUniformLocation(gl->hand_shader, "colorMap");
+  gl->hand_shader_uniforms.mvp[0] =
+      glGetUniformLocation(gl->hand_shader, "mvp[0]");
+  gl->hand_shader_uniforms.mvp[1] =
+      glGetUniformLocation(gl->hand_shader, "mvp[1]");
+}
+
+static void create_cube_buffer(struct CubeBuffer *buffer) {
+  glGenVertexArrays(1, &buffer->vao);
+  glGenBuffers(1, &buffer->vertex_vbo);
+
+  glBindVertexArray(buffer->vao);
+  glBindBuffer(GL_ARRAY_BUFFER, buffer->vertex_vbo);
+
+  GLsizei stride = 5 * sizeof(float);
+  glEnableVertexAttribArray(0);
+  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void *)0);
+  glEnableVertexAttribArray(1);
+  glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride,
+                        (void *)(3 * sizeof(float)));
+  glBufferData(GL_ARRAY_BUFFER, sizeof(cube_vertices), cube_vertices,
+               GL_STATIC_DRAW);
+
+  glGenBuffers(1, &buffer->index_vbo);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, buffer->index_vbo);
+  glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(cube_indices), cube_indices,
+               GL_STATIC_DRAW);
+
+  buffer->index_count = sizeof(cube_indices) / sizeof(cube_indices[0]);
+  buffer->index_offset = 0;
+
+  glBindVertexArray(0);
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+}
+
 static void create_gl_objects(struct Game *game) {
   float vertices[] = {
       -1.0, -1.0, 0.0, -1.0, 1.0,  0.0, 1.0, 1.0, 0.0,
@@ -1159,18 +1290,9 @@ static void create_gl_objects(struct Game *game) {
   free(fragment_shader_source);
   assert(gl->shader_program);
 
-  char *model_vertex_shader_source = read_file("src/shaders/model_view.vert");
-  assert(model_vertex_shader_source != NULL);
-
-  char *get_color_fragment_shader_source =
-      read_file("src/shaders/get_color.frag");
-  assert(get_color_fragment_shader_source != NULL);
-
-  gl->poly_shader_program = create_shader(model_vertex_shader_source,
-                                          get_color_fragment_shader_source);
-  free(model_vertex_shader_source);
-  free(get_color_fragment_shader_source);
-  assert(gl->poly_shader_program);
+  create_terrain_shader(gl);
+  create_hand_shader(gl);
+  create_cube_buffer(&gl->cube_buffer);
 
   for (int i = 0; i < MAP_COUNT; i++) {
     create_map_gl_data(&game->maps[i]);

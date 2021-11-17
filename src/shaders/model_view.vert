@@ -19,13 +19,13 @@ out float CameraDistance;
 
 uniform vec3 cameraPosition;
 
+uniform mat4 projectionViews[2];
+
 // Per instance uniforms
-uniform mat4 mvp[2];
 uniform mat4 model;
 
-void main()
-{
-  gl_Position = mvp[VIEW_ID] * vec4(aPos.x, aPos.y, aPos.z, 1.0);
+void main() {
+  gl_Position = projectionViews[VIEW_ID] * vec4(aPos.x, aPos.y, aPos.z, 1.0);
   WorldPosition = vec4(gl_Position);
   CameraDistance = distance(cameraPosition, vec3(model * vec4(aPos, 1.0)));
   Position = aPos;

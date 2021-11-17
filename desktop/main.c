@@ -154,8 +154,19 @@ int main(void) {
       }
     }
 
+#if 0
+    left_controller.is_connected = true;
+    right_controller.is_connected = true;
+    glm_vec3_copy((vec3){0.358801, -0.422574, -0.369324},
+                  left_controller.pose.position);
+    glm_vec3_copy((vec3){0.358801, -0.422574, -0.369324},
+                  right_controller.pose.position);
+#endif
+
+    struct Pose head_pose = {.position = GLM_VEC3_ZERO_INIT,
+                             .orientation = GLM_QUAT_IDENTITY_INIT};
     update_game(game, &key_state, &left_controller, &right_controller,
-                GLM_VEC3_ZERO, elapsed);
+                head_pose, elapsed);
 #ifdef INCLUDE_LIBOVR
     render_buffer_to_hmd(&vr, &game.frame, &gl, &color_map, &height_map,
                          &camera, num_frames);

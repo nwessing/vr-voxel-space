@@ -3,7 +3,7 @@
 
 void update_game(struct Game *, struct KeyboardState *,
                  struct ControllerState *left_controller,
-                 struct ControllerState *right_controller, vec3 hmd_position,
+                 struct ControllerState *right_controller, struct Pose hmd_pose,
                  float elapsed);
 
 void render_game(struct Game *, struct InputMatrices *);
