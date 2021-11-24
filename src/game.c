@@ -287,9 +287,13 @@ static void render_hands(struct Game *game, struct Map *map,
     glm_vec3_scale(camera_position, game->camera.terrain_scale,
                    camera_position);
 
+    vec3 inv_hmd_position;
+    glm_vec3_scale(game->camera.last_hmd_position, -1.0f, inv_hmd_position);
+
     mat4 camera_transform = GLM_MAT4_IDENTITY_INIT;
     glm_translate(camera_transform, camera_position);
     glm_rotate(camera_transform, game->camera.pitch, (vec3){0.0, 1.0, 0.0});
+    glm_translate(camera_transform, inv_hmd_position);
 
     mat4 model = GLM_MAT4_IDENTITY_INIT;
     glm_translate(model, controller->pose.position);
