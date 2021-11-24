@@ -339,8 +339,9 @@ static void render_real_3d(struct Game *game,
   mat4 birdseye_projection_view[2] = {GLM_MAT4_IDENTITY_INIT,
                                       GLM_MAT4_IDENTITY_INIT};
   if (game->options.visualize_frustum) {
-    float middle = (1.0f / 2.0f) * BASE_MAP_SIZE;
-    vec3 frustum_vis_eye = {middle, 4000.0f, middle};
+    float middle = (1.0f / 2.0f) * game->camera.terrain_scale;
+    vec3 frustum_vis_eye = {middle, 4000.0f * game->camera.terrain_scale,
+                            middle};
     vec3 frustum_vis_up = {0.0f, 0.0f, -1.0f};
     vec3 frustum_vis_center = {middle, 0.0f, middle};
     mat4 birdseye_view_matrix = GLM_MAT4_IDENTITY_INIT;
@@ -1092,20 +1093,22 @@ static void create_map_gl_data(struct Map *map) {
   int32_t num_indices = 0;
   int32_t section_width = extents.width / MAP_X_SEGMENTS;
   int32_t section_height = extents.height / MAP_Y_SEGMENTS;
+  float half_section_width = section_width / 2.0f;
+  float half_section_height = section_height / 2.0f;
+  vec3 section_corner = {half_section_width * modifier, 128.0f,
+                         half_section_height * modifier};
+  float bounding_sphere_radius = glm_vec3_norm(section_corner);
   for (int32_t i_section = 0; i_section < MAP_SECTION_COUNT; ++i_section) {
     struct Rect rect = {.x = (i_section % MAP_X_SEGMENTS) * section_width,
                         .y = (i_section / MAP_Y_SEGMENTS) * section_height,
                         .width = section_width,
                         .height = section_height};
     struct MapSection *section = &map->sections[i_section];
-    float half_section_width = section_width / 2.0f;
-    float half_section_height = section_height / 2.0f;
     section->center[0] = (rect.x + half_section_width) * modifier;
     section->center[1] = 128.0f;
     section->center[2] = (rect.y + half_section_height) * modifier;
-    section->bounding_sphere_radius = sqrtf(
-        (half_section_width * half_section_width * modifier * modifier) +
-        (half_section_height * half_section_height * modifier * modifier));
+
+    section->bounding_sphere_radius = bounding_sphere_radius;
 
     int32_t divisor = 1;
     for (int32_t i_lod = 0; i_lod < LOD_COUNT; ++i_lod) {
