@@ -1389,7 +1389,7 @@ int32_t game_init(struct Game *game, int32_t width, int32_t height) {
           },
       .pitch = M_PI,
       .last_hmd_position = {0.0f, 0.0f, 0.0f},
-      .terrain_scale = 1.00f,
+      .terrain_scale = 0.05f,
       .ray =
           {
               .horizon = game->frame.height / 2,
