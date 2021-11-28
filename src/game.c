@@ -1045,6 +1045,7 @@ static void create_map_gl_data(struct Map *map) {
   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, map->color_map.width,
                map->color_map.height, 0, GL_RGB, GL_UNSIGNED_BYTE,
                map->color_map.pixels);
+  glGenerateMipmap(GL_TEXTURE_2D);
 
   // NOTE generate vertices for 1 past the width and height, so that maps
   // can be seamlessly tiled together
