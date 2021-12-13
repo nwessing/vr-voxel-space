@@ -1,0 +1,1 @@
+make -Ctexture_encoder/bin && texture_encoder/bin/texture_encoder

@@ -10,7 +10,7 @@ set(ANDROID_NDK $ENV{NDK_HOME})
 project(QuestVrVoxelSpace)
 set(CMAKE_C_FLAGS "-D_BSD_SOURCE -include ${CMAKE_SOURCE_DIR}/src/main/cpp/android_fopen.h")
 
-include_directories(${CMAKE_SOURCE_DIR}/src/main/cpp/ $ENV{OVR_HOME}/VrApi/Include ${CMAKE_SOURCE_DIR}/../vendor/cglm/include ${CMAKE_SOURCE_DIR}/../src)
+include_directories(${CMAKE_SOURCE_DIR}/src/main/cpp/ $ENV{OVR_HOME}/VrApi/Include ${CMAKE_SOURCE_DIR}/../vendor/cglm/include ${CMAKE_SOURCE_DIR}/../vendor/include ${CMAKE_SOURCE_DIR}/../src)
 add_library(main
             SHARED
 						${CMAKE_SOURCE_DIR}/src/main/cpp/android_fopen.c
@@ -30,6 +30,7 @@ else()
 	target_compile_options(main PRIVATE -Wall -Wextra -pedantic -Werror -Wno-error=format-pedantic -Wno-error=pedantic -Wno-error=unused-parameter -Wno-error=gnu-empty-initializer -Wno-error=unused-function -O2)
 endif()
 
+target_compile_definitions(main PRIVATE VR_VOX_USE_ASTC)
 find_library(EGL_path EGL)
 find_library(android_path android)
 find_library(log_path log)

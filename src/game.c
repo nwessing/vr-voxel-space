@@ -414,7 +414,10 @@ static void render_real_3d(struct Game *game,
     gl_command->base_vertex = 0;
     gl_command->reserved_must_be_zero = 0;
   }
-  assert(glUnmapBuffer(GL_DRAW_INDIRECT_BUFFER) == GL_TRUE);
+
+  if (glUnmapBuffer(GL_DRAW_INDIRECT_BUFFER) != GL_TRUE) {
+    error("Error unmapping buffer range");
+  }
 
   for (int32_t i_command = 0; i_command < game->render_state.num_commands;
        ++i_command) {
@@ -840,6 +843,7 @@ struct MapMeshExtents {
 static int32_t generate_indices(int32_t *index_buffer, int32_t num_indices,
                                 int32_t buffer_size, int32_t v_index,
                                 int32_t sample_divisor, int32_t width) {
+  (void)buffer_size;
   assert(num_indices + 6 < buffer_size);
   index_buffer[num_indices++] = v_index;
   index_buffer[num_indices++] = v_index + (width * sample_divisor);
@@ -1038,14 +1042,27 @@ static int32_t generate_lod_indices(struct MapMeshExtents *map_mesh_extents,
 static void create_map_gl_data(struct Map *map) {
   glGenTextures(1, &map->color_map_tex_id);
   glBindTexture(GL_TEXTURE_2D, map->color_map_tex_id);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                  GL_NEAREST_MIPMAP_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+#ifdef VR_VOX_USE_ASTC
+
+  for (uint32_t mip = 0; mip < map->num_mip_levels; ++mip) {
+    struct AstcImageBuffer *color_map = &map->color_map[mip];
+    glCompressedTexImage2D(GL_TEXTURE_2D, mip, GL_COMPRESSED_RGBA_ASTC_6x6_KHR,
+                           color_map->width, color_map->height, 0,
+                           color_map->image_data_size, color_map->image_data);
+  }
+
+#else
   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, map->color_map.width,
                map->color_map.height, 0, GL_RGB, GL_UNSIGNED_BYTE,
                map->color_map.pixels);
   glGenerateMipmap(GL_TEXTURE_2D);
+#endif
 
   // NOTE generate vertices for 1 past the width and height, so that maps
   // can be seamlessly tiled together
@@ -1308,6 +1325,89 @@ static void create_gl_objects(struct Game *game) {
 }
 
 static int32_t load_map(struct Map *map, struct MapEntry *map_entry) {
+#ifdef VR_VOX_USE_ASTC
+  char file_name_buffer[256];
+  uint32_t mip_level = 0;
+  uint32_t current_width = 0, current_height = 0;
+  while (mip_level < MAX_MIP_LEVELS) {
+    int32_t file_name_length = 0;
+    if (mip_level == 0) {
+      file_name_length = snprintf(file_name_buffer, sizeof(file_name_buffer),
+                                  "%s.astc", map_entry->color);
+    } else {
+      file_name_length = snprintf(file_name_buffer, sizeof(file_name_buffer),
+                                  "%s%d.astc", map_entry->color, mip_level);
+    }
+
+    if (file_name_length >= (int32_t)sizeof(file_name_buffer) - 1) {
+      error("Unable to format ASTC filename for %s\n", map_entry->color);
+      return GAME_ERROR;
+    }
+
+    struct AstcImageBuffer *color_map = &map->color_map[mip_level];
+    uint32_t image_file_size =
+        read_binary_file(file_name_buffer, &color_map->data);
+    if (image_file_size < sizeof(struct AstcHeader)) {
+      error("Malformed ASTC image %s\n", file_name_buffer);
+      return GAME_ERROR;
+    }
+
+    struct AstcHeader *header = (struct AstcHeader *)color_map->data;
+    color_map->width =
+        header->xsize[0] + (header->xsize[1] << 8) + (header->xsize[2] << 16);
+    color_map->height =
+        header->ysize[0] + (header->ysize[1] << 8) + (header->ysize[2] << 16);
+    color_map->depth =
+        header->zsize[0] + (header->zsize[1] << 8) + (header->zsize[2] << 16);
+
+    if (mip_level == 0) {
+      current_width = color_map->width;
+      current_height = color_map->height;
+    } else if (color_map->width != current_width ||
+               color_map->height != current_height) {
+      error("Expected %s to have size %dx$d but it was %dx%d", file_name_buffer,
+            current_width, current_height, color_map->width, color_map->height);
+      return GAME_ERROR;
+    }
+
+    color_map->num_blocks_x =
+        (color_map->width + header->blockdim_x - 1) / header->blockdim_x;
+    color_map->num_blocks_y =
+        (color_map->height + header->blockdim_y - 1) / header->blockdim_y;
+    color_map->num_blocks_z =
+        (color_map->depth + header->blockdim_z - 1) / header->blockdim_z;
+
+    // 16 bytes per block
+    color_map->data_size = sizeof(struct AstcHeader) +
+                           (color_map->num_blocks_x * color_map->num_blocks_y *
+                            color_map->num_blocks_z * 16);
+    if (image_file_size < color_map->data_size) {
+      error(
+          "Malformed ASTC image %s\n. Expected %d bytes but file was %d bytes.",
+          file_name_buffer, color_map->data_size, image_file_size);
+      return GAME_ERROR;
+    }
+
+    color_map->image_data = &color_map->data[sizeof(struct AstcHeader)];
+    color_map->image_data_size =
+        color_map->data_size - sizeof(struct AstcHeader);
+
+    ++mip_level;
+    if (current_width == 1 && current_height == 1) {
+      break;
+    }
+
+    if (current_width > 1) {
+      current_width >>= 1;
+    }
+    if (current_height > 1) {
+      current_height >>= 1;
+    }
+  }
+
+  map->num_mip_levels = mip_level;
+
+#else
   map->color_map.pixels =
       stbi_load(map_entry->color, &map->color_map.width, &map->color_map.height,
                 &map->color_map.num_channels, 0);
@@ -1316,6 +1416,7 @@ static int32_t load_map(struct Map *map, struct MapEntry *map_entry) {
     error("Could not load color map");
     return GAME_ERROR;
   }
+#endif
 
   map->height_map.pixels =
       stbi_load(map_entry->height, &map->height_map.width,
@@ -1360,6 +1461,8 @@ static void create_frame_buffer(struct Game *game, int32_t width,
 }
 
 int32_t game_init(struct Game *game, int32_t width, int32_t height) {
+  memset(&game->maps, 0, sizeof(game->maps));
+
   if (load_assets(game) == GAME_ERROR) {
     return GAME_ERROR;
   }
@@ -1439,10 +1542,20 @@ int32_t game_init(struct Game *game, int32_t width, int32_t height) {
 void game_free(struct Game *game) {
   for (int i = 0; i < MAP_COUNT; ++i) {
     struct Map *map = &game->maps[i];
+#ifdef VR_VOX_USE_ASTC
+    for (uint32_t mip = 0; mip < map->num_mip_levels; ++mip) {
+      struct AstcImageBuffer *astc = &map->color_map[mip];
+      if (astc->data != NULL) {
+        free(astc->data);
+        astc->image_data = NULL;
+      }
+    }
+#else
     if (map->color_map.pixels != NULL) {
       stbi_image_free(map->color_map.pixels);
       map->color_map.pixels = NULL;
     }
+#endif
 
     if (map->height_map.pixels != NULL) {
       stbi_image_free(map->height_map.pixels);

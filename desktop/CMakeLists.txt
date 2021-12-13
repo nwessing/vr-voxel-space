@@ -4,7 +4,7 @@ set(CMAKE_C_STANDARD 99)
 project(DesktopVrVoxelSpace)
 
 add_compile_definitions(INCLUDE_GLAD)
-include_directories(${CMAKE_SOURCE_DIR}/../src ${CMAKE_SOURCE_DIR}/../vendor/cglm/include)
+include_directories(${CMAKE_SOURCE_DIR}/../src ${CMAKE_SOURCE_DIR}/../vendor/cglm/include ${CMAKE_SOURCE_DIR}/../vendor/include)
 
 if (MSVC)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /SUBSYSTEM:CONSOLE")

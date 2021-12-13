@@ -4,3 +4,6 @@
 [submodule "vendor/SDL"]
 	path = vendor/SDL
 	url = git@github.com:libsdl-org/SDL
+[submodule "vendor/astc-encoder"]
+	path = vendor/astc-encoder
+	url = git@github.com:ARM-software/astc-encoder

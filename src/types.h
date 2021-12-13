@@ -18,6 +18,29 @@ struct FrameBuffer {
   int32_t *y_buffer;
 };
 
+struct AstcHeader {
+  uint8_t magic[4];
+  uint8_t blockdim_x;
+  uint8_t blockdim_y;
+  uint8_t blockdim_z;
+  uint8_t xsize[3];
+  uint8_t ysize[3];
+  uint8_t zsize[3];
+};
+
+struct AstcImageBuffer {
+  uint32_t width;
+  uint32_t height;
+  uint32_t depth;
+  uint32_t num_blocks_x;
+  uint32_t num_blocks_y;
+  uint32_t num_blocks_z;
+  uint32_t data_size;
+  uint32_t image_data_size;
+  uint8_t *data;
+  uint8_t *image_data;
+};
+
 struct ImageBuffer {
   int width;
   int height;
@@ -195,8 +218,15 @@ struct MapSection {
 #define MAP_Y_SEGMENTS MAP_X_SEGMENTS
 #define MAP_SECTION_COUNT (MAP_X_SEGMENTS * MAP_Y_SEGMENTS)
 
+#define MAX_MIP_LEVELS 16
+
 struct Map {
+#ifdef VR_VOX_USE_ASTC
+  struct AstcImageBuffer color_map[MAX_MIP_LEVELS];
+  uint32_t num_mip_levels;
+#else
   struct ImageBuffer color_map;
+#endif
   struct ImageBuffer height_map;
   // multiply by this value to get 1024
   float modifier;

@@ -37,13 +37,11 @@ int error(const char *format, ...) {
 }
 
 int info(const char *format, ...) {
-#ifndef NDEBUG
   va_list args;
   va_start(args, format);
   int result = __android_log_vprint(ANDROID_LOG_VERBOSE, TAG, format, args);
   va_end(args);
   return result;
-#endif // NDEBUG
 }
 
 static const char *egl_get_error_string(EGLint error) {
